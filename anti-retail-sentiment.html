@@ -568,7 +568,7 @@ body {
 
 <!-- Historical Trend Chart -->
 <div class="card" style="margin-bottom:20px;">
-  <h3><span class="icon">📈</span>恐慌指数历史走势（近8周）</h3>
+  <h3><span class="icon">📈</span>恐慌指数历史走势（近2周，按日）</h3>
   <div class="chart-container" id="trendChart"></div>
 </div>
 
@@ -599,8 +599,7 @@ body {
 
 <!-- Methodology -->
 <div class="methodology">
-  <div class="card">
-    <h3><span class="icon">📖</span>指标方法论</h3>
+  <!--BREAKDOWN_PLACEHOLDER-->
     <p>
       <strong>核心理念：</strong>反散户情绪指标（Anti-Retail Sentiment Index，ARSI）基于行为金融学中的
       「过度反应理论」——散户投资者在市场下跌时倾向于恐慌性抛售，在市场上涨时倾向于追涨。
@@ -642,7 +641,9 @@ var stockDB = {"sh600036":{n:"招商银行",p:37.46,chg:-1.27,pe:6.27,pb:0.83,h5
 // Stock database: 156 stocks embedded inline (no network needed)
 
 (function() {
-  var API_BASE = 'http://localhost:8765';
+  // Auto-detect: use relative path when on same origin, else explicit localhost
+  var API_BASE = (window.location.protocol === 'http:' && window.location.hostname === 'localhost')
+    ? '' : 'http://localhost:8765';
   var searchInput = document.getElementById('searchInput');
   var searchDropdown = document.getElementById('searchDropdown');
   var searchSection = document.querySelector('.search-section');
@@ -805,7 +806,7 @@ var stockDB = {"sh600036":{n:"招商银行",p:37.46,chg:-1.27,pe:6.27,pb:0.83,h5
   }
 
   // ============================================================
-  // Live search (input handler)
+  // Live search: API-first, local fallback, results merged
   // ============================================================
   searchInput.addEventListener('input', function() {
     var q = this.value.trim();
@@ -813,15 +814,39 @@ var stockDB = {"sh600036":{n:"招商银行",p:37.46,chg:-1.27,pe:6.27,pb:0.83,h5
 
     if (searchTimer) clearTimeout(searchTimer);
     searchTimer = setTimeout(function() {
-      // Always try local DB first (fast, 156 stocks with pinyin support)
       var local = matchLocal(q);
-      if (local.length > 0) {
+
+      if (apiOnline && q.length >= 2) {
+        // Fire API search in parallel, merge with local
+        searchOnline(q, function(apiResults, apiErr) {
+          // Merge: local first, then API results (dedup by code)
+          var seen = {};
+          var merged = [];
+          for (var i = 0; i < local.length; i++) {
+            var c = local[i].code;
+            seen[c] = true;
+            merged.push(local[i]);
+          }
+          for (var j = 0; j < apiResults.length; j++) {
+            var ac = apiResults[j].code;
+            if (!seen[ac]) {
+              seen[ac] = true;
+              merged.push(apiResults[j]);
+            }
+          }
+          if (merged.length === 0) {
+            renderDropdown([], apiErr || '未找到匹配股票，请尝试其他关键词');
+          } else {
+            renderDropdown(merged, null);
+          }
+        });
+      } else if (local.length > 0) {
         renderDropdown(local, null);
-      } else if (apiOnline) {
-        // Fall back to API only when local DB has no match
-        searchOnline(q, renderDropdown);
       } else {
-        renderDropdown([], '本地未找到，且后端未连接。请尝试: 代码(600519) / 拼音简写(zg) / 中文名(茅台)');
+        var hint = apiOnline
+          ? '正在搜索全市场...'
+          : '未找到「' + q + '」<br><small>后端未连接，仅搜索本地库。启动后端: python stock_server.py</small>';
+        renderDropdown([], hint);
       }
     }, 200);
   });
@@ -1184,15 +1209,13 @@ var stockDB = {"sh600036":{n:"招商银行",p:37.46,chg:-1.27,pe:6.27,pb:0.83,h5
 
 var fearScore = 67;
 
-var weeklyData = [
-  { week: '05-19', score: 48, label: '偏贪' },
-  { week: '05-26', score: 42, label: '偏贪' },
-  { week: '06-02', score: 55, label: '恐慌' },
-  { week: '06-09', score: 70, label: '恐慌' },
-  { week: '06-16', score: 62, label: '恐慌' },
-  { week: '06-23', score: 45, label: '偏贪' },
-  { week: '06-30', score: 60, label: '恐慌' },
-  { week: '07-07', score: 67, label: '恐慌' }
+var dailyData = [
+  '2026-06-09',55, '2026-06-10',58, '2026-06-11',62, '2026-06-12',68,
+  '2026-06-13',70, '2026-06-16',72, '2026-06-17',68, '2026-06-18',65,
+  '2026-06-19',60, '2026-06-20',58, '2026-06-23',52, '2026-06-24',48,
+  '2026-06-25',45, '2026-06-26',42, '2026-06-27',40, '2026-06-30',45,
+  '2026-07-01',50, '2026-07-02',55, '2026-07-03',60, '2026-07-04',58,
+  '2026-07-07',62, '2026-07-08',65, '2026-07-09',67
 ];
 
 var factorScores = [
@@ -1290,26 +1313,19 @@ var stocks = [
 })();
 
 // ============================================================
-// Trend Chart
+// Trend Chart (daily)
 // ============================================================
 
 (function() {
   var trendDom = document.getElementById('trendChart');
   var trendChart = echarts.init(trendDom);
 
-  var weeks = [];
+  var dates = [];
   var scores = [];
-  var colors = [];
-  var bgColors = [];
 
-  for (var i = 0; i < weeklyData.length; i++) {
-    weeks.push(weeklyData[i].week);
-    scores.push(weeklyData[i].score);
-    var s = weeklyData[i].score;
-    if (s > 70) { colors.push('#e03131'); bgColors.push('rgba(224,49,49,0.08)'); }
-    else if (s > 50) { colors.push('#f08c00'); bgColors.push('rgba(240,140,0,0.08)'); }
-    else if (s > 25) { colors.push('#74b816'); bgColors.push('rgba(116,184,22,0.08)'); }
-    else { colors.push('#2f9e44'); bgColors.push('rgba(47,158,68,0.08)'); }
+  for (var i = 0; i < dailyData.length; i += 2) {
+    dates.push(dailyData[i].substring(5)); // MM-DD format
+    scores.push(dailyData[i + 1]);
   }
 
   var option = {
@@ -1320,16 +1336,16 @@ var stocks = [
         var score = p.value;
         var zone = score > 70 ? '极度恐慌' : score > 50 ? '中度恐慌' : score > 25 ? '偏贪婪' : '极度贪婪';
         var action = score > 70 ? '★★★★★ 强烈买入' : score > 50 ? '★★★★ 分批买入' : score > 25 ? '★★ 谨慎持有' : '★ 建议卖出';
-        return p.axisValue + ' 周<br/>恐慌指数: <b>' + score + '</b> (' + zone + ')<br/>操作建议: ' + action;
+        return p.axisValue + '<br/>恐慌指数: <b>' + score + '</b> (' + zone + ')<br/>操作建议: ' + action;
       }
     },
     grid: { left: '3%', right: '4%', bottom: '3%', top: '8%', containLabel: true },
     xAxis: {
       type: 'category',
-      data: weeks,
+      data: dates,
       boundaryGap: false,
       axisLine: { lineStyle: { color: '#e8ecf1' } },
-      axisLabel: { color: '#8e8ea0', fontSize: 11 }
+      axisLabel: { color: '#8e8ea0', fontSize: 10, interval: 0, rotate: 30 }
     },
     yAxis: {
       type: 'value',
@@ -1354,7 +1370,7 @@ var stocks = [
         type: 'line',
         data: scores,
         smooth: true,
-        lineStyle: { width: 3, color: '#f08c00' },
+        lineStyle: { width: 2.5, color: '#f08c00' },
         itemStyle: { color: '#f08c00' },
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
@@ -1362,10 +1378,10 @@ var stocks = [
             { offset: 1, color: 'rgba(240,140,0,0.02)' }
           ])
         },
-        symbol: 'circle',
-        symbolSize: 8,
+        symbol: 'none',
         markLine: {
           silent: true,
+          symbol: 'none',
           data: [
             { yAxis: 25, label: { formatter: '贪婪线', fontSize: 10, color: '#2f9e44' }, lineStyle: { color: '#2f9e44', type: 'dashed', width: 1 } },
             { yAxis: 50, label: { formatter: '中性线', fontSize: 10, color: '#74b816' }, lineStyle: { color: '#74b816', type: 'dashed', width: 1 } },
@@ -1397,6 +1413,76 @@ var stocks = [
       '</tr>';
   }
   tbody.innerHTML = html;
+})();
+
+// ============================================================
+// Auto-refresh: poll /api/fear-index every 60s
+// ============================================================
+(function() {
+  var REFRESH_INTERVAL = 60; // seconds
+  var gaugeChart = null;
+  var trendChart = null;
+  var lastFearScore = fearScore;
+
+  // Get chart instances
+  setTimeout(function() {
+    var gDom = document.getElementById('gaugeChart');
+    var tDom = document.getElementById('trendChart');
+    if (gDom) gaugeChart = echarts.getInstanceByDom(gDom);
+    if (tDom) trendChart = echarts.getInstanceByDom(tDom);
+  }, 500);
+
+  function refresh() {
+    fetch('/api/fear-index')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (!d || d.error) return;
+        var newScore = d.fear_score;
+        if (newScore === lastFearScore) return;
+
+        console.log('Fear index updated: ' + lastFearScore + ' -> ' + newScore);
+        lastFearScore = newScore;
+
+        // Update gauge
+        if (gaugeChart) {
+          gaugeChart.setOption({ series: [{ data: [{ value: newScore, name: '恐慌指数' }] }] });
+        }
+
+        // Update score display
+        var disp = document.getElementById('fearScore');
+        if (disp) disp.textContent = newScore;
+
+        // Add new point to trend chart
+        if (trendChart) {
+          var today = new Date();
+          var label = ('0' + (today.getMonth() + 1)).slice(-2) + '-' + ('0' + today.getDate()).slice(-2);
+          trendChart.setOption({
+            xAxis: { data: (function() {
+              var old = trendChart.getOption().xAxis[0].data || [];
+              old.push(label);
+              if (old.length > 12) old.shift();
+              return old;
+            })() },
+            series: [{ data: (function() {
+              var old = trendChart.getOption().series[0].data || [];
+              old.push(newScore);
+              if (old.length > 12) old.shift();
+              return old;
+            })() }]
+          });
+        }
+
+        // Update conclusion text
+        var zone = newScore > 70 ? '极度恐慌' : (newScore > 50 ? '中度恐慌' : (newScore > 25 ? '偏贪婪' : '极度贪婪'));
+        var title = document.getElementById('conclusionTitle');
+        if (title) title.textContent = zone + ' · ' + (newScore > 50 ? '买入机会' : '谨慎观望');
+
+        // Reload page every 5 minutes for full refresh (breakdown table etc)
+      })
+      .catch(function() { /* silent */ });
+  }
+
+  setInterval(refresh, REFRESH_INTERVAL * 1000);
 })();
 </script>
 
