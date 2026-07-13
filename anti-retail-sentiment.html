@@ -454,7 +454,7 @@ body {
   <h1>🔍 反散户情绪择时指标</h1>
   <div class="subtitle">"别人恐惧我贪婪，别人贪婪我恐惧" —— 巴菲特</div>
   <div class="tagline">恐慌指数越高 → 买入信号越强</div>
-  <div class="update-time">数据更新：2026-07-09 | 上证指数 3,998.34 <span class="up">+0.69%</span></div>
+  <div class="update-time" id="updateTime">数据更新：2026-07-13 | 上证指数 — <span>—</span></div>
 </div>
 
 <!-- Stock Search -->
@@ -485,12 +485,7 @@ body {
   <div class="conclusion-text">
     <h2 id="conclusionTitle">中度恐慌 · 买入机会</h2>
     <span class="recommendation buy" id="recommendTag">★★★★ 建议分批买入</span>
-    <p id="conclusionDesc">
-      当前恐慌指数 <strong>67/100</strong>，处于「中度恐慌」区间。融资余额从3万亿高点回落，
-      日均成交额从3.55万亿峰值萎缩至2.8万亿左右，市场涨跌比持续偏弱，媒体恐慌报道增多。
-      历史数据显示，恐慌指数在60-80区间时，<strong>未来1-3个月胜率约68%</strong>，
-      反散户情绪策略进入买入窗口。
-    </p>
+    <p id="conclusionDesc"><!--CONCLUSION_DESC--></p>
   </div>
 </div>
 
@@ -574,7 +569,7 @@ body {
 
 <!-- Stock Recommendations -->
 <div class="card" style="margin-bottom:20px;">
-  <h3><span class="icon">⭐</span>恐慌买入推荐池 <span style="font-size:12px;color:var(--text-muted);font-weight:400;">（恐慌指数67 → 中度恐慌 → 建议分批建仓）</span></h3>
+  <h3><span class="icon">⭐</span>恐慌买入推荐池 <span style="font-size:12px;color:var(--text-muted);font-weight:400;" id="poolHeader"><!--POOL_HEADER--></span></h3>
 
   <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
     <span class="tag tag-buy">★★★★★ 积极买入</span>
@@ -616,7 +611,7 @@ body {
     </p>
     <p style="margin-top:8px; font-size:12px; color:var(--text-muted);">
       ⚠️ 免责声明：本工具仅供研究参考，不构成投资建议。股市有风险，投资需谨慎。历史表现不代表未来收益。
-      数据来源：Wind、东方财富、腾讯自选股、中证数据 | 生成时间：2026-07-09
+      数据来源：Wind、东方财富、腾讯自选股、中证数据 | 实时计算
     </p>
   </div>
 </div>
@@ -629,7 +624,7 @@ body {
 
 <script>
 // ============================================================
-// Stock Database (real-time data from 2026-07-09)
+// Stock Database (auto-refreshed via /api/stocks)
 // ============================================================
 
 var stockDB = {"sh600036":{n:"招商银行",p:37.46,chg:-1.27,pe:6.27,pb:0.83,h52:45.54,dv:8.04,d20:-3.7,d60:-4.46,ytd:-8.83,mkt:"A股",memo:"银行龙头"},"sh600519":{n:"贵州茅台",p:1179.17,chg:-1.68,pe:17.82,pb:6.33,h52:1539.98,dv:4.41,d20:-5.5,d60:-17.31,ytd:-12.6,mkt:"A股",memo:"白酒龙头"},"sz300750":{n:"宁德时代",p:370.91,chg:2.75,pe:21.73,pb:5.25,h52:468.75,dv:2.1,d20:-4.53,d60:-9.33,ytd:2.93,mkt:"A股",memo:"电池龙头"},"sh688981":{n:"中芯国际",p:167.56,chg:10.16,pe:284.3,pb:7.53,h52:168.0,dv:0.0,d20:33.68,d60:65.88,ytd:36.42,mkt:"A股",memo:"芯片制造"},"sz002371":{n:"北方华创",p:860.72,chg:7.28,pe:112.02,pb:16.12,h52:967.24,dv:0.09,d20:39.18,d60:80.77,ytd:87.8,mkt:"A股",memo:"半导体设备"},"sh601688":{n:"华泰证券",p:20.12,chg:0.45,pe:10.35,pb:1.02,h52:25.75,dv:2.58,d20:3.87,d60:7.48,ytd:-14.71,mkt:"A股",memo:"券商"},"sz300760":{n:"迈瑞医疗",p:138.74,chg:0.54,pe:21.46,pb:4.36,h52:252.78,dv:3.04,d20:-3.32,d60:-11.42,ytd:-26.55,mkt:"A股",memo:"医疗器械"},"sh601318":{n:"中国平安",p:49.12,chg:-0.85,pe:6.7,pb:0.9,h52:73.13,dv:5.5,d20:-7.7,d60:-13.93,ytd:-26.3,mkt:"A股",memo:"保险"},"sz000858":{n:"五 粮 液",p:70.66,chg:-1.15,pe:21.77,pb:2.14,h52:129.27,dv:8.13,d20:-10.72,d60:-30.77,ytd:-33.3,mkt:"A股",memo:"白酒"},"sh600030":{n:"中信证券",p:28.31,chg:1.11,pe:12.46,pb:1.47,h52:31.83,dv:2.47,d20:10.33,d60:11.06,ytd:1.07,mkt:"A股",memo:"券商龙头"},"sz000333":{n:"美的集团",p:78.82,chg:-0.74,pe:13.58,pb:2.94,h52:82.18,dv:5.36,d20:-1.69,d60:8.44,ytd:5.9,mkt:"A股",memo:"家电龙头"},"sh601857":{n:"中国石油",p:9.35,chg:0.97,pe:10.82,pb:1.08,h52:13.44,dv:5.03,d20:-6.41,d60:-20.36,ytd:-7.97,mkt:"A股",memo:"能源"},"sz002594":{n:"比亚迪",p:86.22,chg:-1.8,pe:28.53,pb:3.39,h52:116.59,dv:1.54,d20:-4.53,d60:-15.2,ytd:-11.77,mkt:"A股",memo:"新能源车"},"sh600276":{n:"恒瑞医药",p:55.24,chg:2.28,pe:45.16,pb:5.88,h52:73.84,dv:0.36,d20:17.51,d60:-2.85,ytd:-6.96,mkt:"A股",memo:"创新药"},"sz300059":{n:"东方财富",p:20.35,chg:1.09,pe:24.56,pb:3.36,h52:29.26,dv:0.49,d20:14.45,d60:3.51,ytd:-11.83,mkt:"A股",memo:"互联网券商"},"sh688111":{n:"金山办公",p:225.5,chg:3.5,pe:28.83,pb:7.14,h52:413.75,dv:0.55,d20:5.87,d60:-3.85,ytd:-26.26,mkt:"A股",memo:"办公软件"},"sz000001":{n:"平安银行",p:10.49,chg:-1.04,pe:4.73,pb:0.45,h52:12.73,dv:5.68,d20:-4.29,d60:-2.24,ytd:-5.07,mkt:"A股",memo:"银行"},"sh600900":{n:"长江电力",p:27.65,chg:-0.65,pe:18.75,pb:2.97,h52:29.85,dv:3.41,d20:-0.14,d60:4.73,ytd:2.48,mkt:"A股",memo:""},"sh601398":{n:"工商银行",p:7.25,chg:-1.63,pe:6.96,pb:0.67,h52:8.09,dv:4.28,d20:-5.72,d60:1.53,ytd:-6.58,mkt:"A股",memo:""},"sh601939":{n:"建设银行",p:9.89,chg:-1.79,pe:7.57,pb:0.73,h52:10.72,dv:1.88,d20:-5.72,d60:7.03,ytd:6.57,mkt:"A股",memo:""},"sh601288":{n:"农业银行",p:6.09,chg:-1.14,pe:7.24,pb:0.77,h52:8.43,dv:4.1,d20:-9.24,d60:-5.73,ytd:-19.34,mkt:"A股",memo:""},"sh601166":{n:"兴业银行",p:17.14,chg:-0.41,pe:4.68,pb:0.44,h52:24.38,dv:6.22,d20:-6.79,d60:-4.93,ytd:-14.27,mkt:"A股",memo:""},"sh600000":{n:"浦发银行",p:8.93,chg:-0.78,pe:5.92,pb:0.39,h52:14.29,dv:4.17,d20:-6.88,d60:-9.71,ytd:-28.22,mkt:"A股",memo:""},"sz002142":{n:"宁波银行",p:30.76,chg:-0.58,pe:6.75,pb:0.87,h52:33.88,dv:3.9,d20:-5.93,d60:1.69,ytd:9.51,mkt:"A股",memo:""},"sh600016":{n:"民生银行",p:3.3,chg:-0.9,pe:4.93,pb:0.25,h52:5.43,dv:5.73,d20:-6.96,d60:-10.01,ytd:-12.63,mkt:"A股",memo:""},"sh601988":{n:"中国银行",p:5.82,chg:-1.69,pe:7.65,pb:0.69,h52:6.29,dv:1.88,d20:-6.43,d60:3.01,ytd:1.57,mkt:"A股",memo:""},"sh601628":{n:"XD中国人",p:36.68,chg:-0.57,pe:7.16,pb:1.79,h52:51.3,dv:2.33,d20:7.84,d60:-1.27,ytd:-18.27,mkt:"A股",memo:""},"sh601601":{n:"中国太保",p:29.12,chg:-0.85,pe:5.2,pb:0.88,h52:48.39,dv:3.71,d20:-10.43,d60:-24.62,ytd:-30.52,mkt:"A股",memo:""},"sh600887":{n:"伊利股份",p:24.9,chg:-1.27,pe:13.03,pb:2.92,h52:28.6,dv:5.54,d20:-2.66,d60:-1.35,ytd:-10.11,mkt:"A股",memo:""},"sh603288":{n:"海天味业",p:33.28,chg:-2.4,pe:26.75,pb:5.21,h52:41.65,dv:4.08,d20:-2.97,d60:-17.93,ytd:-7.35,mkt:"A股",memo:""},"sz000568":{n:"泸州老窖",p:74.82,chg:-2.08,pe:11.07,pb:2.13,h52:144.52,dv:7.95,d20:-12.4,d60:-27.01,ytd:-34.86,mkt:"A股",memo:""},"sz002304":{n:"洋河股份",p:37.61,chg:-1.57,pe:55.79,pb:1.2,h52:74.03,dv:3.91,d20:-9.96,d60:-22.93,ytd:-36.54,mkt:"A股",memo:""},"sh600809":{n:"山西汾酒",p:105.26,chg:-2.21,pe:11.69,pb:2.85,h52:212.5,dv:0.0,d20:-11.39,d60:-24.21,ytd:-38.7,mkt:"A股",memo:""},"sz000596":{n:"古井贡酒",p:75.94,chg:-1.52,pe:14.2,pb:1.54,h52:176.01,dv:1.32,d20:-12.92,d60:-26.61,ytd:-42.29,mkt:"A股",memo:""},"sh600690":{n:"海尔智家",p:19.94,chg:-1.72,pe:9.99,pb:1.49,h52:28.31,dv:6.15,d20:-2.35,d60:-4.5,ytd:-23.57,mkt:"A股",memo:""},"sz000651":{n:"格力电器",p:38.2,chg:-0.88,pe:7.33,pb:1.41,h52:45.48,dv:7.83,d20:0.0,d60:2.3,ytd:-2.61,mkt:"A股",memo:""},"sz002032":{n:"苏 泊 尔",p:42.98,chg:-2.16,pe:16.33,pb:7.46,h52:50.96,dv:6.1,d20:0.07,d60:0.75,ytd:3.67,mkt:"A股",memo:""},"sh600104":{n:"上汽集团",p:9.88,chg:-1.4,pe:11.24,pb:0.38,h52:20.63,dv:0.89,d20:-10.91,d60:-30.18,ytd:-35.09,mkt:"A股",memo:""},"sz000625":{n:"长安汽车",p:6.9,chg:-1.29,pe:22.26,pb:0.89,h52:13.79,dv:5.0,d20:-7.63,d60:-31.82,ytd:-41.82,mkt:"A股",memo:""},"sh601238":{n:"广汽集团",p:5.07,chg:-1.17,pe:-5.94,pb:0.5,h52:9.57,dv:0.0,d20:-12.59,d60:-30.26,ytd:-37.87,mkt:"A股",memo:""},"sz300124":{n:"汇川技术",p:63.49,chg:0.46,pe:36.26,pb:4.91,h52:90.5,dv:0.79,d20:-9.43,d60:-6.09,ytd:-15.15,mkt:"A股",memo:""},"sz002475":{n:"立讯精密",p:63.4,chg:1.49,pe:26.95,pb:5.25,h52:81.78,dv:0.56,d20:-3.22,d60:8.97,ytd:12.11,mkt:"A股",memo:""},"sz000725":{n:"京东方Ａ",p:7.9,chg:3.54,pe:49.18,pb:2.18,h52:9.5,dv:0.71,d20:32.24,d60:98.29,ytd:90.18,mkt:"A股",memo:""},"sh603501":{n:"豪威集团",p:106.15,chg:5.15,pe:36.25,pb:4.08,h52:157.0,dv:0.46,d20:17.71,d60:11.44,ytd:-15.62,mkt:"A股",memo:""},"sz002049":{n:"紫光国微",p:85.34,chg:2.19,pe:43.89,pb:5.31,h52:94.52,dv:0.36,d20:17.4,d60:23.55,ytd:8.71,mkt:"A股",memo:""},"sz300782":{n:"卓胜微",p:90.8,chg:1.31,pe:-133.67,pb:3.96,h52:144.9,dv:0.0,d20:-3.93,d60:-9.1,ytd:11.44,mkt:"A股",memo:""},"sh688012":{n:"中微公司",p:455.8,chg:7.75,pe:159.99,pb:15.83,h52:500.0,dv:0.05,d20:57.66,d60:109.84,ytd:149.34,mkt:"A股",memo:""},"sh688008":{n:"澜起科技",p:274.92,chg:11.24,pe:131.2,pb:16.27,h52:332.9,dv:0.07,d20:19.01,d60:91.54,ytd:133.38,mkt:"A股",memo:""},"sh688396":{n:"华润微",p:90.57,chg:6.55,pe:132.58,pb:5.21,h52:101.99,dv:0.09,d20:42.01,d60:84.46,ytd:71.5,mkt:"A股",memo:""},"sh600585":{n:"海螺水泥",p:16.64,chg:-2.23,pe:11.35,pb:0.46,h52:27.15,dv:5.09,d20:-8.42,d60:-25.15,ytd:-21.69,mkt:"A股",memo:""},"sz000002":{n:"万  科Ａ",p:2.96,chg:-1.33,pe:-0.4,pb:0.32,h52:7.22,dv:0.0,d20:-6.03,d60:-23.91,ytd:-36.34,mkt:"A股",memo:""},"sh600048":{n:"保利发展",p:4.57,chg:-1.3,pe:-300.14,pb:0.28,h52:8.52,dv:0.76,d20:-11.35,d60:-17.88,ytd:-24.65,mkt:"A股",memo:""},"sh601668":{n:"中国建筑",p:4.54,chg:-0.66,pe:4.94,pb:0.38,h52:6.04,dv:5.98,d20:-4.22,d60:-8.65,ytd:-11.5,mkt:"A股",memo:""},"sh601390":{n:"中国中铁",p:4.18,chg:-1.18,pe:4.83,pb:0.32,h52:6.47,dv:6.27,d20:-6.9,d60:-20.53,ytd:-22.74,mkt:"A股",memo:""},"sh601800":{n:"中国交建",p:5.82,chg:-1.52,pe:7.05,pb:0.32,h52:10.48,dv:2.03,d20:-6.13,d60:-23.42,ytd:-28.35,mkt:"A股",memo:""},"sz300274":{n:"阳光电源",p:121.47,chg:-2.43,pe:21.12,pb:5.33,h52:209.2,dv:1.34,d20:-15.38,d60:-6.64,ytd:-28.7,mkt:"A股",memo:""},"sh688599":{n:"天合光能",p:12.45,chg:-0.8,pe:-4.87,pb:1.43,h52:24.26,dv:0.0,d20:-14.78,d60:-22.77,ytd:-24.77,mkt:"A股",memo:""},"sz002459":{n:"晶澳科技",p:7.4,chg:-1.6,pe:-6.07,pb:1.18,h52:15.54,dv:0.0,d20:-19.13,d60:-31.16,ytd:-35.37,mkt:"A股",memo:""},"sh601012":{n:"隆基绿能",p:11.68,chg:-0.51,pe:-12.81,pb:1.75,h52:23.57,dv:0.0,d20:-17.05,d60:-31.78,ytd:-35.82,mkt:"A股",memo:""},"sh600438":{n:"通威股份",p:11.03,chg:-0.81,pe:-5.28,pb:1.42,h52:27.75,dv:0.0,d20:-21.05,d60:-32.29,ytd:-46.25,mkt:"A股",memo:""},"sz300014":{n:"亿纬锂能",p:55.7,chg:-0.68,pe:27.02,pb:2.8,h52:94.21,dv:0.83,d20:0.61,d60:-19.09,ytd:-15.0,mkt:"A股",memo:""},"sz002230":{n:"科大讯飞",p:41.96,chg:2.49,pe:116.8,pb:4.41,h52:67.5,dv:0.0,d20:-0.78,d60:-11.92,ytd:-16.56,mkt:"A股",memo:""},"sh688256":{n:"寒武纪",p:1511.4,chg:6.92,pe:349.51,pb:77.59,h52:1620.0,dv:0.07,d20:22.78,d60:86.24,ytd:66.31,mkt:"A股",memo:""},"sz002415":{n:"海康威视",p:34.98,chg:1.83,pe:21.46,pb:4.05,h52:36.34,dv:3.29,d20:15.14,d60:12.98,ytd:20.25,mkt:"A股",memo:""},"sz000063":{n:"中兴通讯",p:40.03,chg:8.57,pe:42.79,pb:2.5,h52:55.85,dv:0.0,d20:4.19,d60:11.85,ytd:5.79,mkt:"A股",memo:""},"sh600050":{n:"中国联通",p:4.05,chg:-0.98,pe:14.62,pb:0.75,h52:5.79,dv:4.04,d20:-6.42,d60:-10.16,ytd:-19.93,mkt:"A股",memo:""},"sh600941":{n:"中国移动",p:89.36,chg:-0.66,pe:14.27,pb:1.36,h52:109.29,dv:5.26,d20:-8.13,d60:-2.66,ytd:-9.6,mkt:"A股",memo:""},"sz002129":{n:"TCL中环",p:10.94,chg:2.34,pe:-4.91,pb:2.21,h52:12.44,dv:0.0,d20:8.0,d60:26.77,ytd:27.65,mkt:"A股",memo:""},"sh600009":{n:"上海机场",p:22.39,chg:-1.8,pe:25.61,pb:1.31,h52:34.66,dv:2.1,d20:-4.97,d60:-18.17,ytd:-31.11,mkt:"A股",memo:""},"sh601111":{n:"中国国航",p:5.86,chg:-2.66,pe:60.41,pb:1.88,h52:9.45,dv:0.0,d20:-4.87,d60:-15.8,ytd:-37.46,mkt:"A股",memo:""},"sh600029":{n:"南方航空",p:5.01,chg:-0.99,pe:29.43,pb:2.45,h52:8.46,dv:0.0,d20:-1.96,d60:-13.62,ytd:-37.45,mkt:"A股",memo:""},"sz000768":{n:"中航西飞",p:19.85,chg:-0.5,pe:49.78,pb:2.5,h52:31.81,dv:0.76,d20:-0.1,d60:-18.18,ytd:-21.32,mkt:"A股",memo:""},"sh600893":{n:"航发动力",p:35.26,chg:-0.54,pe:149.34,pb:2.35,h52:63.71,dv:0.2,d20:-6.99,d60:-31.38,ytd:-11.76,mkt:"A股",memo:""},"sh600760":{n:"中航沈飞",p:39.24,chg:-1.43,pe:34.21,pb:4.83,h52:73.26,dv:1.03,d20:-4.41,d60:-19.02,ytd:-29.61,mkt:"A股",memo:""},"sh600150":{n:"中国船舶",p:35.49,chg:-1.36,pe:23.62,pb:1.79,h52:43.42,dv:0.0,d20:1.23,d60:8.7,ytd:6.7,mkt:"A股",memo:""},"sh601989":{n:"中国重工",p:5.1,chg:0.0,pe:33.31,pb:0.0,h52:0.0,dv:116290000000.00002,d20:0.0,d60:0.0,ytd:-1.0,mkt:"A股",memo:""},"sh601899":{n:"紫金矿业",p:27.21,chg:-0.55,pe:11.73,pb:3.82,h52:44.56,dv:2.2,d20:-0.4,d60:-18.46,ytd:-20.18,mkt:"A股",memo:""},"sz002460":{n:"赣锋锂业",p:55.44,chg:-1.3,pe:30.54,pb:2.5,h52:91.67,dv:0.26,d20:-17.99,d60:-33.98,ytd:-11.85,mkt:"A股",memo:""},"sh600547":{n:"XD山东黄",p:23.84,chg:-2.57,pe:21.3,pb:3.53,h52:65.37,dv:1.49,d20:-9.8,d60:-40.43,ytd:-38.13,mkt:"A股",memo:""},"sh603799":{n:"华友钴业",p:41.6,chg:-2.53,pe:10.71,pb:1.59,h52:81.67,dv:1.2,d20:-11.77,d60:-31.72,ytd:-38.61,mkt:"A股",memo:""},"sh600111":{n:"北方稀土",p:42.14,chg:-8.43,pe:55.63,pb:6.07,h52:63.44,dv:0.31,d20:-10.3,d60:-18.36,ytd:-8.37,mkt:"A股",memo:""},"sz000831":{n:"中国稀土",p:47.1,chg:-3.21,pe:209.56,pb:10.17,h52:66.85,dv:0.06,d20:-12.86,d60:-9.39,ytd:1.48,mkt:"A股",memo:""},"sz000977":{n:"浪潮信息",p:85.99,chg:10.0,pe:49.42,pb:5.68,h52:85.99,dv:0.05,d20:44.79,d60:27.47,ytd:29.19,mkt:"A股",memo:""},"sz000938":{n:"紫光股份",p:35.08,chg:4.34,pe:47.22,pb:6.54,h52:35.33,dv:0.19,d20:35.68,d60:29.81,ytd:42.98,mkt:"A股",memo:""},"sh603019":{n:"中科曙光",p:103.27,chg:5.22,pe:68.13,pb:6.87,h52:127.67,dv:0.44,d20:24.87,d60:21.61,ytd:21.22,mkt:"A股",memo:""},"sh688041":{n:"海光信息",p:355.48,chg:3.64,pe:303.09,pb:35.69,h52:377.88,dv:0.07,d20:24.88,d60:53.44,ytd:58.58,mkt:"A股",memo:""},"sh688047":{n:"龙芯中科",p:146.2,chg:4.43,pe:-140.31,pb:24.44,h52:203.05,dv:0.0,d20:8.66,d60:9.76,ytd:10.67,mkt:"A股",memo:""},"sh688561":{n:"奇安信-U",p:24.87,chg:-2.85,pe:-13.49,pb:2.4,h52:44.88,dv:0.0,d20:0.4,d60:-17.4,ytd:-30.1,mkt:"A股",memo:""},"sz300033":{n:"同花顺",p:228.85,chg:1.36,pe:51.56,pb:24.64,h52:307.07,dv:1.62,d20:15.35,d60:0.07,ytd:1.04,mkt:"A股",memo:""},"sh601066":{n:"中信建投",p:28.16,chg:1.44,pe:19.39,pb:2.53,h52:31.4,dv:1.17,d20:12.87,d60:29.29,ytd:5.84,mkt:"A股",memo:""},"sh600837":{n:"海通证券",p:10.41,chg:0.0,pe:-154.67,pb:0.0,h52:0.0,dv:135998000000.0,d20:0.0,d60:0.0,ytd:-1.0,mkt:"A股",memo:""},"hk00700":{n:"腾讯控股",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"互联网龙头"},"hk09988":{n:"阿里巴巴",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"电商龙头"},"hk09999":{n:"网易",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"游戏"},"hk01810":{n:"小米集团",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"手机+汽车"},"hk09618":{n:"京东集团",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"电商"},"hk09888":{n:"百度集团",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"AI"},"hk02015":{n:"理想汽车",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"新能源车"},"hk09866":{n:"蔚来",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"新能源车"},"hk01211":{n:"比亚迪股份",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"新能源车"},"hk02318":{n:"中国平安",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"保险"},"hk00388":{n:"港交所",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"交易所"},"hk00941":{n:"中国移动",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"电信"},"hk00883":{n:"中国海油",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"能源"},"hk01398":{n:"工商银行",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"银行"},"hk03988":{n:"中国银行",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"银行"},"hk02382":{n:"舜宇光学",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"光学"},"hk02020":{n:"安踏体育",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"运动"},"hk09626":{n:"哔哩哔哩",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"视频"},"hk01024":{n:"快手",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"短视频"},"hk03690":{n:"美团",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"本地生活"},"hk09698":{n:"万国数据",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"数据中心"},"hk09688":{n:"百度集团",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"AI"},"hk02269":{n:"药明生物",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"医药"},"hk01177":{n:"中国生物制药",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"医药"},"hk00175":{n:"吉利汽车",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"汽车"},"hk09868":{n:"小鹏汽车",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"新能源车"},"hk00005":{n:"汇丰控股",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"银行"},"hk01299":{n:"友邦保险",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"保险"},"hk00016":{n:"新鸿基地产",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"地产"},"hk00027":{n:"银河娱乐",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"港股",memo:"博彩"},"usAAPL":{n:"苹果 Apple",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"科技"},"usMSFT":{n:"微软 Microsoft",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"AI云"},"usGOOGL":{n:"谷歌 Alphabet",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"AI搜索"},"usAMZN":{n:"亚马逊 Amazon",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"电商云"},"usNVDA":{n:"英伟达 NVIDIA",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"GPU"},"usMETA":{n:"Meta",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"社交"},"usTSLA":{n:"特斯拉 Tesla",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"电动车"},"usAMD":{n:"AMD",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"芯片"},"usINTC":{n:"英特尔 Intel",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"芯片"},"usNFLX":{n:"奈飞 Netflix",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"流媒体"},"usBABA":{n:"阿里巴巴",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"中概电商"},"usJD":{n:"京东",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"中概电商"},"usPDD":{n:"拼多多",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"电商"},"usBIDU":{n:"百度",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"中概AI"},"usNIO":{n:"蔚来",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"中概电车"},"usXPEV":{n:"小鹏汽车",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"中概电车"},"usLI":{n:"理想汽车",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"中概电车"},"usTCOM":{n:"携程",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"中概旅游"},"usV":{n:"Visa",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"支付"},"usJPM":{n:"摩根大通",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"金融"},"usJNJ":{n:"强生",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"医药"},"usPG":{n:"宝洁",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"消费"},"usKO":{n:"可口可乐",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"消费"},"usWMT":{n:"沃尔玛",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"零售"},"usDIS":{n:"迪士尼",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"娱乐"},"usADBE":{n:"Adobe",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"软件"},"usCRM":{n:"Salesforce",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"SaaS"},"usORCL":{n:"甲骨文",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"数据库"},"usAVGO":{n:"博通",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"芯片"},"usQCOM":{n:"高通",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"芯片"},"usASML":{n:"阿斯麦",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"光刻机"},"usTSM":{n:"台积电",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"芯片代工"},"usUBER":{n:"Uber",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"出行"},"usPLTR":{n:"Palantir",p:0,chg:0,pe:0,pb:0,h52:0,dv:0,d20:0,d60:0,ytd:0,mkt:"美股",memo:"AI数据分析"},"sz300502":{n:"新易盛",p:545.27,chg:6.74,pe:70.79,pb:39.16,h52:618.87,dv:0.13,d20:-1.05,d60:46.38,ytd:77.58,mkt:"A股",memo:"光通信龙头"},"sz300418":{n:"昆仑万维",p:50.06,chg:4.38,pe:-37.6,pb:5.02,h52:72.09,dv:0.0,d20:31.08,d60:0.02,ytd:20.05,mkt:"A股",memo:"AI应用龙头"}};
@@ -1192,7 +1187,7 @@ var stockDB = {"sh600036":{n:"招商银行",p:37.46,chg:-1.27,pe:6.27,pb:0.83,h5
     html += '</tr></tbody></table></div>';
 
     html += '<div style="margin-top:10px;font-size:11px;color:var(--text-muted);text-align:right;">' +
-      '数据来源：腾讯自选股 | 2026-07-09 | 本地缓存数据</div>';
+      '数据来源：腾讯自选股 | 实时行情 | 每分钟自动刷新</div>';
 
     analysisContent.innerHTML = html;
     analysisPanel.classList.add('active');
@@ -1218,14 +1213,7 @@ var dailyData = [
   '2026-07-07',62, '2026-07-08',65, '2026-07-09',67
 ];
 
-var factorScores = [
-  { name: '成交量\n萎缩', score: 72, max: 100 },
-  { name: '融资余额\n回落', score: 70, max: 100 },
-  { name: '市场\n宽度', score: 80, max: 100 },
-  { name: '指数\n回撤', score: 53, max: 100 },
-  { name: '媒体\n情绪', score: 80, max: 100 },
-  { name: '开户\n动能', score: 30, max: 100 }
-];
+var factorScores = [];  // <!--FACTOR_SCORES--> injected by server
 
 var stocks = [
   { name: '招商银行', code: '600036.SH', type: '蓝筹金融', reason: '券商中报利润翻倍，金融板块盈利确定性强，恐慌中被错杀', rating: '★★★★★', ratingClass: 'tag-buy' },
@@ -1465,24 +1453,15 @@ var stocks = [
         var title = document.getElementById('conclusionTitle');
         if (title) title.textContent = zone + ' · ' + (newScore > 50 ? '买入机会' : '谨慎观望');
 
-        // Update date header
+        // Update date header + 上证指数
         var today = new Date();
         var dateStr = today.getFullYear() + '-' + ('0' + (today.getMonth() + 1)).slice(-2) + '-' + ('0' + today.getDate()).slice(-2);
-        var updateEl = document.querySelector('.update-time');
-        if (updateEl) {
-          updateEl.innerHTML = updateEl.innerHTML.replace(/20\d\d-\d\d-\d\d/, dateStr);
-        }
-
-        // Update 上证 index in header
-        if (d.sz_price) {
+        var updateEl = document.getElementById('updateTime');
+        if (updateEl && d.sz_price) {
           var chgSign = d.sz_chg >= 0 ? '+' : '';
           var chgClass = d.sz_chg >= 0 ? 'up' : 'down';
-          if (updateEl) {
-            updateEl.innerHTML = updateEl.innerHTML.replace(
-              /上证指数 [\d,.]+ <span class="\w+">.+/,
-              '上证指数 ' + d.sz_price.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' <span class="' + chgClass + '">' + chgSign + d.sz_chg.toFixed(2) + '%</span>'
-            );
-          }
+          var szStr = d.sz_price.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+          updateEl.innerHTML = '数据更新：' + dateStr + ' | 上证指数 ' + szStr + ' <span class="' + chgClass + '">' + chgSign + d.sz_chg.toFixed(2) + '%</span>';
         }
 
         // Add new point to trend chart
@@ -1508,10 +1487,49 @@ var stocks = [
   }
 
   // Initial load after 1.5s (wait for ECharts to initialize)
-  setTimeout(function() { loaderReady = true; refresh(); }, 1500);
+  setTimeout(function() { loaderReady = true; refresh(); refreshStocks(); }, 1500);
 
-  // Poll every 60s
+  // Poll every 60s — fear index + stock quotes
   setInterval(refresh, REFRESH_INTERVAL * 1000);
+  setInterval(refreshStocks, REFRESH_INTERVAL * 1000);
+})();
+
+// ============================================================
+// Stock data auto-refresh: poll /api/stocks every 60s
+// ============================================================
+(function() {
+  function refreshStocks() {
+    fetch('/api/stocks')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (!d || !d.stocks) return;
+        var changed = false;
+        for (var code in d.stocks) {
+          var s = d.stocks[code];
+          if (s.p && stockDB[code] && Math.abs(stockDB[code].p - s.p) > 0.01) {
+            stockDB[code] = s;
+            changed = true;
+          } else if (!stockDB[code]) {
+            stockDB[code] = s;
+            changed = true;
+          } else {
+            // Always update PE, chg etc even if price unchanged
+            stockDB[code].pe = s.pe || stockDB[code].pe;
+            stockDB[code].chg = s.chg || stockDB[code].chg;
+            stockDB[code].d20 = s.d20 || stockDB[code].d20;
+            stockDB[code].d60 = s.d60 || stockDB[code].d60;
+            stockDB[code].ytd = s.ytd || stockDB[code].ytd;
+          }
+        }
+        if (changed) {
+          console.log('Stock data refreshed: ' + Object.keys(d.stocks).length + ' stocks');
+        }
+      })
+      .catch(function() {});
+  }
+
+  // Expose to outer scope
+  window.refreshStocks = refreshStocks;
 })();
 </script>
 
