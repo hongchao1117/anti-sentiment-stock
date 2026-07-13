@@ -399,9 +399,9 @@ class StockAPIHandler(BaseHTTPRequestHandler):
 
                 self._send_json(quote)
 
-            # ---- Serve frontend with LIVE data injection ----
+            # ---- Serve frontend (static, JS loads data async) ----
             elif path == "/" or path == "/index.html":
-                self._serve_live_main_page()
+                self._send_html(str(HTML_FILE))
             
             # ---- Server-rendered search page (no JS fetch needed) ----
             elif path == "/search":

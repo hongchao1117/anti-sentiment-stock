@@ -1416,32 +1416,40 @@ var stocks = [
 })();
 
 // ============================================================
-// Auto-refresh: poll /api/fear-index every 60s
+// Live data loader: load immediately, then poll every 60s
 // ============================================================
 (function() {
   var REFRESH_INTERVAL = 60; // seconds
   var gaugeChart = null;
   var trendChart = null;
   var lastFearScore = fearScore;
+  var loaderReady = false;
 
-  // Get chart instances
-  setTimeout(function() {
+  function getCharts() {
     var gDom = document.getElementById('gaugeChart');
     var tDom = document.getElementById('trendChart');
     if (gDom) gaugeChart = echarts.getInstanceByDom(gDom);
     if (tDom) trendChart = echarts.getInstanceByDom(tDom);
-  }, 500);
+    loaderReady = true;
+  }
+
+  // Get chart references after ECharts init
+  setTimeout(getCharts, 800);
 
   function refresh() {
+    if (!loaderReady) { setTimeout(getCharts, 500); return; }
+
     fetch('/api/fear-index')
       .then(function(r) { return r.json(); })
       .then(function(d) {
         if (!d || d.error) return;
         var newScore = d.fear_score;
-        if (newScore === lastFearScore) return;
 
-        console.log('Fear index updated: ' + lastFearScore + ' -> ' + newScore);
-        lastFearScore = newScore;
+        // Always update score + date (even if score unchanged — date is new)
+        if (newScore !== lastFearScore) {
+          console.log('Fear index updated: ' + lastFearScore + ' -> ' + newScore);
+          lastFearScore = newScore;
+        }
 
         // Update gauge
         if (gaugeChart) {
@@ -1452,36 +1460,57 @@ var stocks = [
         var disp = document.getElementById('fearScore');
         if (disp) disp.textContent = newScore;
 
-        // Add new point to trend chart
-        if (trendChart) {
-          var today = new Date();
-          var label = ('0' + (today.getMonth() + 1)).slice(-2) + '-' + ('0' + today.getDate()).slice(-2);
-          trendChart.setOption({
-            xAxis: { data: (function() {
-              var old = trendChart.getOption().xAxis[0].data || [];
-              old.push(label);
-              if (old.length > 12) old.shift();
-              return old;
-            })() },
-            series: [{ data: (function() {
-              var old = trendChart.getOption().series[0].data || [];
-              old.push(newScore);
-              if (old.length > 12) old.shift();
-              return old;
-            })() }]
-          });
-        }
-
-        // Update conclusion text
+        // Update conclusion
         var zone = newScore > 70 ? '极度恐慌' : (newScore > 50 ? '中度恐慌' : (newScore > 25 ? '偏贪婪' : '极度贪婪'));
         var title = document.getElementById('conclusionTitle');
         if (title) title.textContent = zone + ' · ' + (newScore > 50 ? '买入机会' : '谨慎观望');
 
-        // Reload page every 5 minutes for full refresh (breakdown table etc)
+        // Update date header
+        var today = new Date();
+        var dateStr = today.getFullYear() + '-' + ('0' + (today.getMonth() + 1)).slice(-2) + '-' + ('0' + today.getDate()).slice(-2);
+        var updateEl = document.querySelector('.update-time');
+        if (updateEl) {
+          updateEl.innerHTML = updateEl.innerHTML.replace(/20\d\d-\d\d-\d\d/, dateStr);
+        }
+
+        // Update 上证 index in header
+        if (d.sz_price) {
+          var chgSign = d.sz_chg >= 0 ? '+' : '';
+          var chgClass = d.sz_chg >= 0 ? 'up' : 'down';
+          if (updateEl) {
+            updateEl.innerHTML = updateEl.innerHTML.replace(
+              /上证指数 [\d,.]+ <span class="\w+">.+/,
+              '上证指数 ' + d.sz_price.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' <span class="' + chgClass + '">' + chgSign + d.sz_chg.toFixed(2) + '%</span>'
+            );
+          }
+        }
+
+        // Add new point to trend chart
+        if (trendChart) {
+          var label = ('0' + (today.getMonth() + 1)).slice(-2) + '-' + ('0' + today.getDate()).slice(-2);
+          var oldLabels = trendChart.getOption().xAxis[0].data || [];
+          var oldData = trendChart.getOption().series[0].data || [];
+          // If last label is today, replace it; otherwise append
+          if (oldLabels.length > 0 && oldLabels[oldLabels.length - 1] === label) {
+            oldData[oldData.length - 1] = newScore;
+          } else {
+            oldLabels.push(label);
+            oldData.push(newScore);
+            if (oldLabels.length > 12) { oldLabels.shift(); oldData.shift(); }
+          }
+          trendChart.setOption({
+            xAxis: { data: oldLabels },
+            series: [{ data: oldData }]
+          });
+        }
       })
-      .catch(function() { /* silent */ });
+      .catch(function(err) { console.log('API not ready:', err); });
   }
 
+  // Initial load after 1.5s (wait for ECharts to initialize)
+  setTimeout(function() { loaderReady = true; refresh(); }, 1500);
+
+  // Poll every 60s
   setInterval(refresh, REFRESH_INTERVAL * 1000);
 })();
 </script>
