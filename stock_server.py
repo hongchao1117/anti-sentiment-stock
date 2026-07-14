@@ -5,6 +5,7 @@
 端口: 8765
 """
 
+import csv
 import json
 import os
 import re
@@ -749,52 +750,60 @@ class StockAPIHandler(BaseHTTPRequestHandler):
         import re as re_mod
         html = re_mod.sub(r"var fearScore = [\d.]+;", f"var fearScore = {fear_score};", html)
         
-        # Generate daily fear data for the chart (last 10 trading days ~ 2 weeks)
+        # Build dailyData from REAL historical CSV
+        import datetime, csv, io
+        history_path = PROJECT_DIR / "fear_history.csv"
+        today = time.strftime("%Y-%m-%d")
+        
+        # Load existing history
+        history = {}  # date -> score
+        if history_path.exists():
+            with open(history_path, "r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    if len(row) >= 2:
+                        try:
+                            history[row[0]] = int(row[1])
+                        except: pass
+        
+        # Record today's fear score
+        history[today] = fear_score
+        
+        # Save back (sorted by date)
+        with open(history_path, "w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            for d in sorted(history.keys()):
+                writer.writerow([d, history[d]])
+        
+        # Build dailyData for chart: last 10 trading days
         import datetime
         today_dt = datetime.date.today()
         daily_entries = []
-        base_score = fear_score
-        trend = sz_d20
-        trend2 = sz_d60 if abs(sz_d60) > abs(trend) else trend * 2
-        
         d = today_dt
-        days_added = 0
-        while days_added < 10:
-            if d.weekday() < 5:
-                days_back = 10 - days_added
-                long_trend = (days_back / 10.0) * (-trend2 * 0.3)
-                noise = ((days_back * 7 + days_added * 13) % 9 - 4) * 1.2
-                day_score = base_score + long_trend + noise
-                day_score = max(20, min(85, int(round(day_score))))
-                daily_entries.append((d.strftime("%Y-%m-%d"), day_score))
-                days_added += 1
+        found = 0
+        while found < 10:
+            if d.weekday() < 5:  # trading day
+                key = d.strftime("%Y-%m-%d")
+                if key in history:
+                    daily_entries.append((key, history[key]))
+                found += 1
             d -= datetime.timedelta(days=1)
         daily_entries.reverse()
-        # Ensure last point equals current fearScore
-        if daily_entries:
-            daily_entries[-1] = (daily_entries[-1][0], fear_score)
         
-        # Build dailyData JS array
         daily_parts = []
         for date_str, score_val in daily_entries:
-            daily_parts.append(f"'{date_str}',{score_val}")
+            mm, dd = date_str[5:7], date_str[8:10]
+            label = f"{int(mm)}/{int(dd)}"  # 7/14 instead of 07-14
+            daily_parts.append(f"'{label}',{score_val}")
         daily_js = "var dailyData = [" + ",".join(daily_parts) + "];"
         
-        # Update date (BEFORE dailyData injection to avoid overwriting historical dates)
-        today = time.strftime("%Y-%m-%d")
-        html = html.replace("2026-07-08", today).replace("2026-07-09", today)
-        # Only replace dates outside the dailyData array
-        parts = html.split("var dailyData")
-        if len(parts) > 1:
-            # dailyData goes in the middle - don't touch it
-            pre = parts[0]
-            post_parts = parts[1].split("];", 1)
-            daily_section = post_parts[0]
-            post = post_parts[1] if len(post_parts) > 1 else ""
-            for old_date in re_mod.findall(r"20\d\d-\d\d-\d\d", pre + post):
-                if old_date != today:
-                    html = html.replace(old_date, today)
-            html = pre + daily_js + post
+        # Inject dailyData (replaces old inline var dailyData)
+        html = re_mod.sub(r"var dailyData = \[[\s\S]*?\];", daily_js, html)
+        
+        # Update other stale dates outside dailyData
+        for old_date in re_mod.findall(r"20\d\d-\d\d-\d\d", html):
+            if old_date < "2026-07-13":  # Skip chart dates
+                html = html.replace(old_date, today)
         else:
             for old_date in re_mod.findall(r"20\d\d-\d\d-\d\d", html):
                 if old_date != today:
@@ -949,6 +958,43 @@ class StockAPIHandler(BaseHTTPRequestHandler):
         # Pool header
         pool_hdr = f'(恐慌指数{fear_score} → {zone} → {"建议分批建仓" if fear_score > 50 else ("谨慎持有" if fear_score > 25 else "建议回避")})'
         html = html.replace('<!--POOL_HEADER-->', pool_hdr)
+
+        # Dynamic factor list (the "恐慌因子拆解" panel)
+        def bar_color(pct):
+            if pct >= 66: return "#e03131"
+            if pct >= 40: return "#f08c00"
+            return "#2f9e44"
+
+        items = [
+            ("📉 成交量萎缩度", vol_score, 25,
+             f"近20日上证 {sz_d20:+.2f}%，{'放量上涨' if sz_d20>1 else ('缩量震荡' if sz_d20>-1 else '成交量萎缩')}"),
+            ("💰 融资余额回落", margin_score, 20,
+             f"近60日 {sz_d60:+.2f}%，{'杠杆资金平稳' if abs(sz_d60)<10 else ('杠杆资金撤离' if sz_d60<-10 else '杠杆资金活跃')}"),
+            ("📋 市场宽度恶化", breadth_score, 20,
+             f"今日 {sz_chg:+.2f}%，{'多数上涨' if sz_chg>0.5 else ('涨跌互现' if sz_chg>-0.5 else '多数下跌')}"),
+            ("📌 指数高点回撤", dd_seg_score, 15,
+             f"上证 {sz_price:,.2f}，距52周高 {high52:,.2f} 回撤 {dd_pct_val:.1f}%"),
+            ("📰 媒体恐慌情绪", media_score, 10,
+             f"今日{'上涨，悲观报道减少' if sz_chg >= 0 else '下跌，恐慌报道增多'}"),
+            ("👥 新增开户动能", account_score, 10,
+             f"上半年开户同比+57%，散户入市积极（偏乐观因子）"),
+        ]
+        factor_html = ""
+        for name, score, max_s, detail in items:
+            pct = round(score / max_s * 100)
+            color = bar_color(pct)
+            factor_html += (
+                f'<div class="factor-item">'
+                f'<div class="factor-header">'
+                f'<span class="factor-name">{name}</span>'
+                f'<span class="factor-score" style="color:{color};">{score} / {max_s}</span>'
+                f'</div>'
+                f'<div class="factor-bar-bg"><div class="factor-bar-fill" style="width:{pct}%;background:{color};"></div></div>'
+                f'<div class="factor-detail">{detail}</div>'
+                f'</div>'
+            )
+        html = html.replace('<div class="factor-list"><!--FACTOR_LIST--></div>',
+                           f'<div class="factor-list">{factor_html}</div>')
         
         body = html.encode("utf-8")
         self.send_response(200)
@@ -956,6 +1002,93 @@ class StockAPIHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+def backfill_history():
+    """Backfill fear_history.csv from historical kline data."""
+    history_path = PROJECT_DIR / "fear_history.csv"
+    today = time.strftime("%Y-%m-%d")
+    
+    history = {}
+    if history_path.exists():
+        with open(history_path, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split(",")
+                if len(parts) >= 2:
+                    try: history[parts[0]] = int(parts[1])
+                    except: pass
+    
+    print("  [BACKFILL] Fetching K-line...", flush=True)
+    try:
+        r = subprocess.run(
+            [str(NODE_EXE), "scripts/index.js", "kline", "sh000001",
+             "--start", "2025-01-01", "--end", today, "--limit", "300"],
+            cwd=str(WESTOCK_DIR), capture_output=True, text=True,
+            encoding='utf-8', errors='replace', timeout=30,
+        )
+        if r.returncode != 0:
+            print(f"  [BACKFILL] Failed, code={r.returncode}", flush=True)
+            return
+    except Exception as e:
+        print(f"  [BACKFILL] Error: {e}", flush=True)
+        return
+    
+    klines = []
+    for line in r.stdout.strip().split("\n"):
+        line = line.strip()
+        if not line.startswith("|") or line.startswith("| ---") or "date" in line:
+            continue
+        parts = [c.strip() for c in line.split("|") if c.strip()]
+        if len(parts) < 8: continue
+        try:
+            klines.append({
+                "date": parts[0],
+                "price": float(parts[2]),   # last
+                "high": float(parts[3]),    # high
+            })
+        except: pass
+    
+    if len(klines) < 60:
+        print(f"  [BACKFILL] Only {len(klines)} rows, need 60+", flush=True)
+        return
+    
+    klines.sort(key=lambda x: x["date"])
+    filled = 0
+    
+    # Same formula as calculate_fear_index, computed from K-line data
+    for i in range(60, len(klines)):
+        date = klines[i]["date"]
+        if date in history: continue
+        
+        price = klines[i]["price"]
+        prev = klines[i-1]["price"]
+        chg = (price - prev) / prev * 100 if prev else 0
+        
+        d20_idx = i - 20
+        d20 = (price - klines[d20_idx]["price"]) / klines[d20_idx]["price"] * 100
+        
+        d60_idx = max(i - 60, 0)
+        d60 = (price - klines[d60_idx]["price"]) / klines[d60_idx]["price"] * 100
+        
+        yago = max(i - 250, 0)
+        h52 = max(k["high"] for k in klines[yago:i+1])
+        dd_pct = ((h52 - price) / h52 * 100) if h52 else 0
+        
+        vol = 20 if d20 < -5 else (15 if d20 < -3 else (10 if d20 < 0 else 5))
+        margin = 18 if d60 < -10 else (14 if d60 < -5 else (10 if d60 < 0 else 6))
+        breadth = 18 if chg < -1.5 else (14 if chg < -1 else (10 if chg < 0 else 6))
+        dd_seg = min(15, round(dd_pct * 0.6))
+        media = 8 if chg < -1 else (6 if chg < 0 else 4)
+        total = vol + margin + breadth + dd_seg + media + 5
+        
+        history[date] = int(round(total))
+        filled += 1
+    
+    with open(history_path, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        for d in sorted(history.keys()):
+            w.writerow([d, history[d]])
+    
+    print(f"  [BACKFILL] {filled} new days, {len(history)} total", flush=True)
 
 def main():
     server = HTTPServer(("127.0.0.1", PORT), StockAPIHandler)
@@ -976,6 +1109,9 @@ def main():
 ║   Ctrl+C 停止服务                             ║
 ╚══════════════════════════════════════════════╝
 """, flush=True)
+
+    # Backfill historical fear data from K-line
+    backfill_history()
 
     # Start background stock refresher
     threading.Thread(target=refresh_stock_cache, daemon=True, name="stock-refresher").start()

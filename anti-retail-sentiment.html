@@ -493,56 +493,7 @@ body {
 <div class="grid-2">
   <div class="card">
     <h3><span class="icon">📊</span>恐慌因子拆解</h3>
-    <div class="factor-list">
-      <div class="factor-item">
-        <div class="factor-header">
-          <span class="factor-name">📉 成交量萎缩度</span>
-          <span class="factor-score" style="color:#e03131;">18 / 25</span>
-        </div>
-        <div class="factor-bar-bg"><div class="factor-bar-fill" style="width:72%;background:var(--fear-high);"></div></div>
-        <div class="factor-detail">日均成交额从3.55万亿高位降至2.6-2.8万亿，萎缩约20-25%，散户参与度下降</div>
-      </div>
-      <div class="factor-item">
-        <div class="factor-header">
-          <span class="factor-name">💰 融资余额回落</span>
-          <span class="factor-score" style="color:#e03131;">14 / 20</span>
-        </div>
-        <div class="factor-bar-bg"><div class="factor-bar-fill" style="width:70%;background:var(--fear-high);"></div></div>
-        <div class="factor-detail">融资余额从3万亿回落至2.98万亿，近两周净流出约420亿，杠杆资金撤离</div>
-      </div>
-      <div class="factor-item">
-        <div class="factor-header">
-          <span class="factor-name">📋 市场宽度恶化</span>
-          <span class="factor-score" style="color:#e03131;">16 / 20</span>
-        </div>
-        <div class="factor-bar-bg"><div class="factor-bar-fill" style="width:80%;background:var(--fear-high);"></div></div>
-        <div class="factor-detail">全市场涨跌比持续偏弱，单日曾出现1500涨/3800跌，涨停76 vs 跌停74接近持平</div>
-      </div>
-      <div class="factor-item">
-        <div class="factor-header">
-          <span class="factor-name">📌 指数高点回撤</span>
-          <span class="factor-score" style="color:#f08c00;">8 / 15</span>
-        </div>
-        <div class="factor-bar-bg"><div class="factor-bar-fill" style="width:53%;background:var(--fear-mid);"></div></div>
-        <div class="factor-detail">上证从近期高点4,175回撤至4,011，幅度约3.9%，属于温和调整</div>
-      </div>
-      <div class="factor-item">
-        <div class="factor-header">
-          <span class="factor-name">📰 媒体恐慌情绪</span>
-          <span class="factor-score" style="color:#e03131;">8 / 10</span>
-        </div>
-        <div class="factor-bar-bg"><div class="factor-bar-fill" style="width:80%;background:var(--fear-high);"></div></div>
-        <div class="factor-detail">"恐慌情绪蔓延""情绪降至冰点""大跌大涨再大跌"等恐慌关键词频繁出现</div>
-      </div>
-      <div class="factor-item">
-        <div class="factor-header">
-          <span class="factor-name">👥 新增开户动能</span>
-          <span class="factor-score" style="color:#2f9e44;">3 / 10</span>
-        </div>
-        <div class="factor-bar-bg"><div class="factor-bar-fill" style="width:30%;background:var(--fear-low);"></div></div>
-        <div class="factor-detail">上半年两融新开户96万户，同比增长57%，散户入场积极（唯一偏乐观的因子）</div>
-      </div>
-    </div>
+    <div class="factor-list"><!--FACTOR_LIST--></div>
   </div>
 
   <div class="card">
@@ -1312,7 +1263,7 @@ var stocks = [
   var scores = [];
 
   for (var i = 0; i < dailyData.length; i += 2) {
-    dates.push(dailyData[i].substring(5)); // MM-DD format
+    dates.push(dailyData[i]); // already short format like 7/14
     scores.push(dailyData[i + 1]);
   }
 
@@ -1327,13 +1278,13 @@ var stocks = [
         return p.axisValue + '<br/>恐慌指数: <b>' + score + '</b> (' + zone + ')<br/>操作建议: ' + action;
       }
     },
-    grid: { left: '3%', right: '4%', bottom: '3%', top: '8%', containLabel: true },
+    grid: { left: '5%', right: '5%', bottom: '8%', top: '5%', containLabel: true },
     xAxis: {
       type: 'category',
       data: dates,
       boundaryGap: false,
       axisLine: { lineStyle: { color: '#e8ecf1' } },
-      axisLabel: { color: '#8e8ea0', fontSize: 10, interval: 0, rotate: 30 }
+      axisLabel: { color: '#8e8ea0', fontSize: 11, interval: 0 }
     },
     yAxis: {
       type: 'value',
@@ -1464,24 +1415,7 @@ var stocks = [
           updateEl.innerHTML = '数据更新：' + dateStr + ' | 上证指数 ' + szStr + ' <span class="' + chgClass + '">' + chgSign + d.sz_chg.toFixed(2) + '%</span>';
         }
 
-        // Add new point to trend chart
-        if (trendChart) {
-          var label = ('0' + (today.getMonth() + 1)).slice(-2) + '-' + ('0' + today.getDate()).slice(-2);
-          var oldLabels = trendChart.getOption().xAxis[0].data || [];
-          var oldData = trendChart.getOption().series[0].data || [];
-          // If last label is today, replace it; otherwise append
-          if (oldLabels.length > 0 && oldLabels[oldLabels.length - 1] === label) {
-            oldData[oldData.length - 1] = newScore;
-          } else {
-            oldLabels.push(label);
-            oldData.push(newScore);
-            if (oldLabels.length > 12) { oldLabels.shift(); oldData.shift(); }
-          }
-          trendChart.setOption({
-            xAxis: { data: oldLabels },
-            series: [{ data: oldData }]
-          });
-        }
+        // Trend chart: don't update on auto-refresh (server regenerates on page reload)
       })
       .catch(function(err) { console.log('API not ready:', err); });
   }
