@@ -1166,16 +1166,7 @@ var dailyData = [
 
 var factorScores = [];  // <!--FACTOR_SCORES--> injected by server
 
-var stocks = [
-  { name: '招商银行', code: '600036.SH', type: '蓝筹金融', reason: '券商中报利润翻倍，金融板块盈利确定性强，恐慌中被错杀', rating: '★★★★★', ratingClass: 'tag-buy' },
-  { name: '贵州茅台', code: '600519.SH', type: '消费龙头', reason: '高ROE护城河深厚，当前估值处于近2年低位区间，防御性突出', rating: '★★★★★', ratingClass: 'tag-buy' },
-  { name: '中芯国际', code: '688981.SH', type: '半导体制造', reason: '国产替代逻辑未变，板块回调充分，产业趋势确定性高', rating: '★★★★', ratingClass: 'tag-buy' },
-  { name: '北方华创', code: '002371.SZ', type: '半导体设备', reason: '设备国产化率提升，订单饱满，恐慌情绪下估值回归合理', rating: '★★★★', ratingClass: 'tag-buy' },
-  { name: '宁德时代', code: '300750.SZ', type: '新能源龙头', reason: '全球电池龙头，盈利触底回升，融资净偿还充分后具备安全边际', rating: '★★★★', ratingClass: 'tag-buy' },
-  { name: '华泰证券', code: '601688.SH', type: '券商', reason: '市场成交额维持高位，券商直接受益，分红季+业绩增长双击', rating: '★★★★', ratingClass: 'tag-buy' },
-  { name: '迈瑞医疗', code: '300760.SZ', type: '医疗器械', reason: '医药板块融资净偿还充分，估值处于历史低位，防御+成长兼备', rating: '★★★', ratingClass: 'tag-hold' },
-  { name: '中国平安', code: '601318.SH', type: '保险金融', reason: '利率下行环境下保险配置价值凸显，高股息防御首选', rating: '★★★', ratingClass: 'tag-hold' }
-];
+var stocks = [];  // <!--POOL_STOCKS--> injected by server
 
 // ============================================================
 // Gauge Chart
@@ -1345,10 +1336,11 @@ var stocks = [
   for (var i = 0; i < stocks.length; i++) {
     var s = stocks[i];
     html += '<tr>' +
-      '<td><span class="stock-name">' + s.name + '</span><br><span class="stock-code">' + s.code + '</span></td>' +
+      '<td><span class="stock-name">' + s.name + '</span></td>' +
+      '<td><span class="stock-code">' + s.code + '</span></td>' +
       '<td><span class="tag tag-value">' + s.type + '</span></td>' +
       '<td style="font-size:12px;color:#5a5a7a;">' + s.reason + '</td>' +
-      '<td><span class="tag ' + s.ratingClass + '">' + s.rating + '</span></td>' +
+      '<td><span class="tag ' + s.ratingClass + '" style="white-space:nowrap;">' + s.rating + '</span></td>' +
       '</tr>';
   }
   tbody.innerHTML = html;

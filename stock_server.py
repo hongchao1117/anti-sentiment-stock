@@ -38,6 +38,7 @@ NODE_EXE = Path(r"C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22
 _stock_cache = {}
 _stock_cache_lock = threading.Lock()
 _stock_last_update = 0
+_stock_refresh_time = {}  # code -> timestamp of last refresh
 
 def refresh_stock_cache():
     """Background thread: refresh all stock quotes every 120s"""
@@ -52,13 +53,16 @@ def refresh_stock_cache():
             _stock_last_update = time.time()
     while True:
         try:
-            codes = list(_stock_cache.keys()) if _stock_cache else []
-            if not codes:
-                time.sleep(120)
+            codes_priced = [c for c in _stock_cache if _stock_cache[c].get("p", 0) > 0]
+            codes_new = [c for c in _stock_cache if _stock_cache[c].get("p", 0) == 0]
+            # Prioritize stocks without prices, interleave with priced ones
+            queue = (codes_new + codes_priced)[:12]
+            if not queue:
+                time.sleep(60)
                 continue
 
             updated = 0
-            for code in codes[:3]:  # Only refresh 3 stocks per cycle
+            for code in queue:
                 try:
                     r = subprocess.run(
                         [str(NODE_EXE), "scripts/index.js", "quote", code],
@@ -68,32 +72,52 @@ def refresh_stock_cache():
                     if r.returncode == 0:
                         for line in r.stdout.strip().split("\n"):
                             line = line.strip()
-                            if not (line.startswith("| sh") or line.startswith("| sz")): continue
+                            if not line.startswith("|"): continue
+                            if "---" in line or "| code" in line: continue
                             parts = [c.strip() for c in line.split("|") if c.strip()]
                             if len(parts) < 30 or parts[0].startswith("-"): continue
                             try:
+                                # Column mapping depends on market
+                                if code.startswith("hk") or code.startswith("us"):
+                                    # HK/US: 38 cols, no pe_fwd/pe_lyr
+                                    p = float(parts[5] or 0)
+                                    chg = float(parts[13] or 0)
+                                    pe = float(parts[20] or 0)
+                                    pb = float(parts[21] or 0)
+                                    dv = float(parts[22] or 0)
+                                    h52 = float(parts[28] or 0)
+                                    d20 = float(parts[32] or 0)
+                                    d60 = float(parts[33] or 0)
+                                    ytd = float(parts[34] or 0)
+                                else:
+                                    # A-share: 40 cols with pe_fwd/pe_lyr
+                                    p = float(parts[5] or 0)
+                                    chg = float(parts[13] or 0)
+                                    pe = float(parts[20] or 0)
+                                    pb = float(parts[23] or 0)
+                                    dv = float(parts[24] or 0)
+                                    h52 = float(parts[29] or 0)
+                                    d20 = float(parts[33] or 0)
+                                    d60 = float(parts[34] or 0)
+                                    ytd = float(parts[35] or 0)
                                 with _stock_cache_lock:
                                     if code in _stock_cache:
-                                        _stock_cache[code] = {
-                                            "n": parts[3], "p": float(parts[5] or 0),
-                                            "chg": float(parts[13] or 0), "pe": float(parts[20] or 0),
-                                            "pb": float(parts[23] or 0), "h52": float(parts[29] or 0),
-                                            "dv": float(parts[24] or 0), "d20": float(parts[33] or 0),
-                                            "d60": float(parts[34] or 0), "ytd": float(parts[35] or 0),
-                                            "mkt": _stock_cache[code].get("mkt", "A股"),
-                                            "memo": _stock_cache[code].get("memo", ""),
-                                        }
+                                        _stock_cache[code].update({
+                                            "p": p, "chg": chg, "pe": pe, "pb": pb,
+                                            "h52": h52, "dv": dv, "d20": d20, "d60": d60, "ytd": ytd,
+                                        })
+                                        _stock_refresh_time[code] = time.time()
                                         updated += 1
                             except: pass
                 except: pass
-                time.sleep(0.5)  # Rate limit
-
+                time.sleep(0.3)
             if updated:
                 _stock_last_update = time.time()
-                print(f"  [OK] Stock cache refreshed: {updated}", flush=True)
+                priced = sum(1 for c in _stock_cache if _stock_cache[c].get("p", 0) > 0)
+                print(f"  Stock: +{updated} real-time, total priced={priced}/{len(_stock_cache)}", flush=True)
         except Exception as e:
-            print(f"  [WARN] Cache refresh error: {e}", flush=True)
-        time.sleep(120)
+            print(f"  Stock error: {e}", flush=True)
+        time.sleep(60)
 
 # Extracted CSS styles (auto-generated by embed_css.py)
 STYLE = (
@@ -958,6 +982,86 @@ class StockAPIHandler(BaseHTTPRequestHandler):
         # Pool header
         pool_hdr = f'(恐慌指数{fear_score} → {zone} → {"建议分批建仓" if fear_score > 50 else ("谨慎持有" if fear_score > 25 else "建议回避")})'
         html = html.replace('<!--POOL_HEADER-->', pool_hdr)
+
+        # Generate panic-buy pool from recently-refreshed live stocks
+        now = time.time()
+        fresh_cutoff = now - 300  # last 5 minutes
+        with _stock_cache_lock:
+            cache_snapshot = dict(_stock_cache)
+            refresh_age = dict(_stock_refresh_time)
+        pool_entries = []
+        for code, s in cache_snapshot.items():
+            p = s.get("p", 0)
+            chg = s.get("chg", 0)
+            pe = s.get("pe", 0)
+            dv = s.get("dv", 0)
+            if not p or not s.get("n"): continue
+            # Only use stocks refreshed recently
+            if refresh_age.get(code, 0) < fresh_cutoff:
+                continue
+            score = (-chg * 1.5) + (10 if 0 < pe <= 20 else (5 if 0 < pe <= 40 else 0)) + (min(dv, 5) * 2)
+            pool_entries.append((code, s, score))
+        pool_entries.sort(key=lambda x: -x[2])
+        selected = pool_entries[:8]
+        
+        # Fallback: if nothing fresh yet, show loading note
+        if len(selected) < 3:
+            pool_js = ('var stocks = [{name:"数据加载中...",code:"",type:"","reason":"后台正在拉取实时行情，请1分钟后刷新页面","rating":"...","ratingClass":"tag-hold"}];')
+        else:
+            pool_js_parts = []
+            for code, s, sc in selected:
+                name = s["n"].replace('"', '\\"')
+                mkt = s.get("mkt", "A股")
+                chg = s.get("chg", 0)
+                pe_raw = s.get("pe", 0)
+                dv_raw = s.get("dv", 0)
+                
+                # Build meaningful reason
+                reasons = []
+                if pe_raw > 0 and pe_raw <= 15:
+                    reasons.append("低PE")
+                elif pe_raw > 0 and pe_raw <= 25:
+                    reasons.append("PE合理")
+                if dv_raw > 0 and dv_raw >= 3:
+                    reasons.append(f"高股息{dv_raw:.1f}%")
+                elif dv_raw > 0:
+                    reasons.append(f"股息{dv_raw:.1f}%")
+                if chg < -2:
+                    reasons.append("超跌")
+                elif chg < 0:
+                    reasons.append("近期回调")
+                elif chg >= 0:
+                    reasons.append("趋势向好")
+                reason = " + ".join(reasons) if reasons else f"PE{pe_raw:.1f} {chg:+.1f}%"
+                
+                # Better star ratings
+                if sc >= 12:
+                    stars = "★★★★★"
+                    rating = "强烈买入"
+                    cls = "tag-buy"
+                elif sc >= 8:
+                    stars = "★★★★☆"
+                    rating = "积极买入"
+                    cls = "tag-buy"
+                elif sc >= 5:
+                    stars = "★★★★"
+                    rating = "分批建仓"
+                    cls = "tag-buy"
+                elif sc >= 2:
+                    stars = "★★★"
+                    rating = "观望"
+                    cls = "tag-hold"
+                else:
+                    stars = "★★"
+                    rating = "暂避"
+                    cls = "tag-sell"
+                
+                pool_js_parts.append(
+                    f'{{name:"{name}",code:"{code}",type:"{mkt}",'
+                    f'reason:"{reason}",rating:"{stars} {rating}",ratingClass:"{cls}"}}'
+                )
+            pool_js = "var stocks = [" + ",".join(pool_js_parts) + "];"
+        html = html.replace('var stocks = [];  // <!--POOL_STOCKS--> injected by server', pool_js)
 
         # Dynamic factor list (the "恐慌因子拆解" panel)
         def bar_color(pct):
