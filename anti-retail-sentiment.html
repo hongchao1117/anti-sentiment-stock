@@ -1089,7 +1089,7 @@ var stockDB = {"sh600036":{n:"招商银行",p:37.46,chg:-1.27,pe:6.27,pb:0.83,h5
     var chgCls = s.chg >= 0 ? 'up' : 'down';
     var chgSign = s.chg >= 0 ? '+' : '';
     var ddColor = ddPct > 30 ? '#e03131' : ddPct > 15 ? '#f08c00' : '#2f9e44';
-    var peColor = s.pe < 15 ? '#2f9e44' : s.pe < 30 ? '#f08c00' : '#e03131';
+    var peColor = s.pe > 0 && s.pe < 15 ? '#2f9e44' : s.pe > 0 && s.pe < 30 ? '#f08c00' : '#e03131';
     var ytdColor = ytd < -15 ? '#e03131' : ytd < 0 ? '#f08c00' : '#2f9e44';
     var scoreColor = totalScore >= 55 ? '#e03131' : totalScore >= 40 ? '#f08c00' : '#2f9e44';
     var d20Cls = s.d20 >= 0 ? 'up' : 'down';
@@ -1102,7 +1102,7 @@ var stockDB = {"sh600036":{n:"招商银行",p:37.46,chg:-1.27,pe:6.27,pb:0.83,h5
     html += '<div class="stock-header">';
     html += '<div><span class="stock-title">' + s.n + '</span><span class="stock-code-tag">' + code + '</span>' + cachedLabel + '</div>';
     html += '<div class="stock-price-info">';
-    html += '<div class="current-price" style="color:' + (s.chg >= 0 ? 'var(--red)' : 'var(--green)') + ';">¥' + s.p.toFixed(2) + '</div>';
+    html += '<div class="current-price" style="color:' + (s.chg >= 0 ? 'var(--red)' : 'var(--green)') + ';">¥' + (s.p || 0).toFixed(2) + '</div>';
     html += '<div class="price-change ' + chgCls + '">' + chgSign + s.chg.toFixed(2) + '%</div></div></div>';
 
     html += '<div class="stock-metrics">';
@@ -1264,7 +1264,7 @@ var stocks = [];  // <!--POOL_STOCKS--> injected by server
       formatter: function(params) {
         var p = params[0];
         var score = p.value;
-        var zone = score > 70 ? '极度恐慌' : score > 50 ? '中度恐慌' : score > 25 ? '偏贪婪' : '极度贪婪';
+        var zone = score > 75 ? '极度恐慌' : score > 50 ? '中度恐慌' : score > 25 ? '偏贪婪' : '极度贪婪';
         var action = score > 70 ? '★★★★★ 强烈买入' : score > 50 ? '★★★★ 分批买入' : score > 25 ? '★★ 谨慎持有' : '★ 建议卖出';
         return p.axisValue + '<br/>恐慌指数: <b>' + score + '</b> (' + zone + ')<br/>操作建议: ' + action;
       }
@@ -1392,7 +1392,7 @@ var stocks = [];  // <!--POOL_STOCKS--> injected by server
         if (disp) disp.textContent = newScore;
 
         // Update conclusion
-        var zone = newScore > 70 ? '极度恐慌' : (newScore > 50 ? '中度恐慌' : (newScore > 25 ? '偏贪婪' : '极度贪婪'));
+        var zone = newScore > 75 ? '极度恐慌' : (newScore > 50 ? '中度恐慌' : (newScore > 25 ? '偏贪婪' : '极度贪婪'));
         var title = document.getElementById('conclusionTitle');
         if (title) title.textContent = zone + ' · ' + (newScore > 50 ? '买入机会' : '谨慎观望');
 
