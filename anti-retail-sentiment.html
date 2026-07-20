@@ -760,40 +760,20 @@ var stockDB = {"sh600036":{n:"招商银行",p:37.46,chg:-1.27,pe:6.27,pb:0.83,h5
 
     if (searchTimer) clearTimeout(searchTimer);
     searchTimer = setTimeout(function() {
-      var local = matchLocal(q);
-
-      if (apiOnline && q.length >= 2) {
-        // Fire API search in parallel, merge with local
-        searchOnline(q, function(apiResults, apiErr) {
-          // Merge: local first, then API results (dedup by code)
-          var seen = {};
-          var merged = [];
-          for (var i = 0; i < local.length; i++) {
-            var c = local[i].code;
-            seen[c] = true;
-            merged.push(local[i]);
-          }
-          for (var j = 0; j < apiResults.length; j++) {
-            var ac = apiResults[j].code;
-            if (!seen[ac]) {
-              seen[ac] = true;
-              merged.push(apiResults[j]);
-            }
-          }
-          if (merged.length === 0) {
-            renderDropdown([], apiErr || '未找到匹配股票，请尝试其他关键词');
+      // Always use server-side suggest (no local cache)
+      fetch('/api/suggest?q=' + encodeURIComponent(q))
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          var results = d.results || [];
+          if (results.length === 0) {
+            renderDropdown([], '未找到匹配股票，请尝试其他关键词');
           } else {
-            renderDropdown(merged, null);
+            renderDropdown(results, null);
           }
+        })
+        .catch(function() {
+          renderDropdown([], '搜索服务暂不可用');
         });
-      } else if (local.length > 0) {
-        renderDropdown(local, null);
-      } else {
-        var hint = apiOnline
-          ? '正在搜索全市场...'
-          : '未找到「' + q + '」<br><small>后端未连接，仅搜索本地库。启动后端: python stock_server.py</small>';
-        renderDropdown([], hint);
-      }
     }, 200);
   });
 
@@ -874,31 +854,26 @@ var stockDB = {"sh600036":{n:"招商银行",p:37.46,chg:-1.27,pe:6.27,pb:0.83,h5
     if (!code) {
       var input = searchInput.value.trim();
       if (!input) { return; }
-      // Try local match first
-      var local = matchLocal(input);
-      if (local.length > 0) {
-        code = local[0].code;
-        searchInput.value = local[0].name;
-      } else if (apiOnline) {
-        // Try online search then analyze first result
-        searchOnline(input, function(results, err) {
-          if (results.length > 0) {
-            code = results[0].code;
-            searchInput.value = results[0].name;
-            loadAndRender(code);
+      // Use server-side suggest
+      fetch('/api/suggest?q=' + encodeURIComponent(input))
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.results && d.results.length > 0) {
+            var c = d.results[0].code;
+            searchInput.value = d.results[0].name;
+            loadAndRender(c);
           } else {
             analysisContent.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);">' +
               '未找到「' + input + '」<br><small>请尝试完整股票代码或名称</small></div>';
             analysisPanel.classList.add('active');
           }
+        })
+        .catch(function() {
+          analysisContent.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);">' +
+            '搜索服务暂不可用<br><small>请稍后重试</small></div>';
+          analysisPanel.classList.add('active');
         });
-        return;
-      } else {
-        analysisContent.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);">' +
-          '未找到「' + input + '」，后端服务未连接<br><small>请启动后端: python stock_server.py</small></div>';
-        analysisPanel.classList.add('active');
-        return;
-      }
+      return;
     }
     loadAndRender(code);
   }
@@ -1038,6 +1013,49 @@ var stockDB = {"sh600036":{n:"招商银行",p:37.46,chg:-1.27,pe:6.27,pb:0.83,h5
     html += '<td class="' + d60Cls + '">' + (d60 >= 0 ? '+' : '') + d60.toFixed(2) + '%</td>';
     html += '<td class="' + ytdCls + '">' + (ytd >= 0 ? '+' : '') + ytd.toFixed(2) + '%</td>';
     html += '</tr></tbody></table></div>';
+
+    // Moving averages
+    var ma = data.ma || {};
+    if (ma.ma5) {
+      var maColor = function(v) { return v ? 'var(--red)' : 'var(--green)'; };
+      html += '<div style="margin-top:16px;"><div class="section-title">📈 均线</div>';
+      html += '<div class="metric-row" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px;">';
+      html += '<div class="metric-item"><div class="metric-value" style="color:' + (ma.above_ma5 ? 'var(--red)' : 'var(--green)') + ';">' + ma.ma5 + '</div><div class="metric-label">MA5' + (ma.above_ma5 ? '↑' : '↓') + '</div></div>';
+      html += '<div class="metric-item"><div class="metric-value" style="color:' + (ma.above_ma10 ? 'var(--red)' : 'var(--green)') + ';">' + ma.ma10 + '</div><div class="metric-label">MA10' + (ma.above_ma10 ? '↑' : '↓') + '</div></div>';
+      html += '<div class="metric-item"><div class="metric-value" style="color:' + (ma.above_ma20 ? 'var(--red)' : 'var(--green)') + ';">' + ma.ma20 + '</div><div class="metric-label">MA20' + (ma.above_ma20 ? '↑' : '↓') + '</div></div>';
+      html += '<div class="metric-item"><div class="metric-value" style="color:' + (ma.above_ma60 ? 'var(--red)' : 'var(--green)') + ';">' + ma.ma60 + '</div><div class="metric-label">MA60' + (ma.above_ma60 ? '↑' : '↓') + '</div></div>';
+      html += '</div></div>';
+    }
+
+    // Fund flow
+    var flow = data.flow || {};
+    if (flow.main_net !== undefined) {
+      var mainYi = (flow.main_net / 1e8).toFixed(2);
+      var main5dYi = (flow.main_net_5d / 1e8).toFixed(2);
+      var main20dYi = (flow.main_net_20d / 1e8).toFixed(2);
+      var flowColor = flow.main_net > 0 ? 'var(--red)' : 'var(--green)';
+      html += '<div style="margin-top:16px;"><div class="section-title">💰 资金流入（亿元）</div>';
+      html += '<table class="stock-table" style="margin-top:8px;"><thead><tr><th>日期</th><th>今日主力</th><th>5日累计</th><th>20日累计</th><th>主力排名</th></tr></thead><tbody><tr>';
+      html += '<td>' + (flow.date || '—') + '</td>';
+      html += '<td style="color:' + flowColor + ';font-weight:600;">' + (flow.main_net >= 0 ? '+' : '') + mainYi + '</td>';
+      html += '<td style="color:' + (flow.main_net_5d >= 0 ? 'var(--red)' : 'var(--green)') + ';">' + (flow.main_net_5d >= 0 ? '+' : '') + main5dYi + '</td>';
+      html += '<td style="color:' + (flow.main_net_20d >= 0 ? 'var(--red)' : 'var(--green)') + ';">' + (flow.main_net_20d >= 0 ? '+' : '') + main20dYi + '</td>';
+      html += '<td>' + (flow.main_rank || '—') + '</td>';
+      html += '</tr></tbody></table></div>';
+    }
+
+    // Financial reports
+    var fin = data.finance || {};
+    if (fin.date) {
+      html += '<div style="margin-top:16px;"><div class="section-title">📊 财报数据 (' + fin.date + ')</div>';
+      html += '<table class="stock-table" style="margin-top:8px;"><thead><tr><th>指标</th><th>数值</th><th>同比</th></tr></thead><tbody>';
+      html += '<tr><td>EPS</td><td>' + fin.eps + '</td><td>—</td></tr>';
+      html += '<tr><td>营收（季度）</td><td>' + fin.revenue_q + '</td>';
+      html += '<td style="color:' + (fin.revenue_growth >= 0 ? 'var(--red)' : 'var(--green)') + ';">' + (fin.revenue_growth >= 0 ? '+' : '') + fin.revenue_growth + '%</td></tr>';
+      html += '<tr><td>净利润（季度）</td><td>' + fin.profit_q + '</td>';
+      html += '<td style="color:' + (fin.profit_growth >= 0 ? 'var(--red)' : 'var(--green)') + ';">' + (fin.profit_growth >= 0 ? '+' : '') + fin.profit_growth + '%</td></tr>';
+      html += '</tbody></table></div>';
+    }
 
     html += '<div style="margin-top:10px;font-size:11px;color:var(--text-muted);text-align:right;">' +
       '数据来源：腾讯自选股 · NeoData | ' + (new Date().toISOString().slice(0,10)) + ' | 仅供参考</div>';

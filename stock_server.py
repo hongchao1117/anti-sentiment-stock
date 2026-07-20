@@ -127,7 +127,9 @@ STYLE = (
 # Stock Search via neodata
 # ============================================================
 def search_stock(query: str) -> list:
-    """搜索股票，返回匹配列表"""
+    """搜索股票，返回匹配列表。优先 neodata，失败时 fallback 到本地库。"""
+    stocks = []
+    
     try:
         result = subprocess.run(
             [str(PYTHON_EXE), "scripts/query.py", "--query", query, "--data-type", "api"],
@@ -138,93 +140,66 @@ def search_stock(query: str) -> list:
             errors='replace',
             timeout=25,
         )
-        if result.returncode != 0:
-            stderr = result.stderr.strip()
-            if "TOKEN_EXPIRED" in stderr or "TOKEN_MISSING" in stderr:
-                return [{"error": "token_expired", "message": "数据凭证已过期，请刷新"}]
-            return [{"error": "search_failed", "message": stderr[:200]}]
-
-        data = json.loads(result.stdout)
-        stocks = []
-
-        # Parse API recall results
-        api_data = data.get("data", {}).get("apiData", {})
-        entities = api_data.get("entity", [])
-        api_recall = api_data.get("apiRecall", [])
-
-        # Extract from entities (neodata sometimes returns code/name swapped)
-        seen = set()
-        for ent in entities:
-            code = ent.get("code", "")
-            name = ent.get("name", "")
-            if code and name and (code not in seen):
-                # Detect swapped code/name: name looks like a stock code
-                if re.match(r'^\d{4,6}\.(SZ|SH|HK|US|NYSE|NASDAQ)$', name) and re.search(r'[\u4e00-\u9fff]', code):
-                    code, name = name, code  # swap
-                # Normalize: strip .SZ/.SH suffix for A-shares
-                m = re.match(r'^(\d{6})\.(SZ|SH)$', code)
-                if m:
-                    digits = m.group(1)
-                    suffix = m.group(2).lower()
-                    code = f"{suffix}{digits}"
-                
-                market = "A股"
-                if "HK" in code.upper() or code.endswith(".HK"):
-                    market = "港股"
-                elif any(code.endswith(s) for s in [".US", ".NYSE", ".NASDAQ"]) or code.isalpha():
-                    market = "美股"
-                stocks.append({
-                    "code": code,
-                    "name": name,
-                    "market": market,
-                    "price": None,
-                    "chg": None
-                })
-                seen.add(code)
-
-        # Also try to extract from apiRecall content
-        for recall in api_recall:
-            content = recall.get("content", "")
-            # Try to find stock codes and names in content
-            code_matches = re.findall(r'(?:sh|sz|SH|SZ)(\d{6})', content)
-            for cm in code_matches[:10]:
-                prefix = "sh" if "SH" in cm or content.find(f"sh{cm}") >= 0 else "sz"
-                full_code = f"{prefix}{cm}"
-                if full_code not in seen:
-                    # Try to find name nearby
-                    name_match = re.search(rf'{full_code}[^\n]*?([\u4e00-\u9fff]{{2,6}})', content)
-                    stocks.append({
-                        "code": full_code,
-                        "name": name_match.group(1) if name_match else full_code,
-                        "market": "A股",
-                        "price": None,
-                        "chg": None
-                    })
-                    seen.add(full_code)
-
-        # If no results, try HK and US patterns
-        if not stocks:
-            hk_match = re.findall(r'(HK\d{4,5})|(\d{4,5}\.HK)', query.upper())
-            if hk_match:
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            api_data = data.get("data", {}).get("apiData", {})
+            entities = api_data.get("entity", [])
+            api_recall = api_data.get("apiRecall", [])
+            seen = set()
+            for ent in entities:
+                code = ent.get("code", "")
+                name = ent.get("name", "")
+                if code and name and (code not in seen):
+                    if re.match(r'^\d{4,6}\.(SZ|SH|HK|US|NYSE|NASDAQ)$', name) and re.search(r'[\u4e00-\u9fff]', code):
+                        code, name = name, code
+                    m = re.match(r'^(\d{6})\.(SZ|SH)$', code)
+                    if m:
+                        code = f"{m.group(2).lower()}{m.group(1)}"
+                    market = "A股"
+                    if "HK" in code.upper() or code.endswith(".HK"):
+                        market = "港股"
+                    elif any(code.endswith(s) for s in [".US", ".NYSE", ".NASDAQ"]) or code.isalpha():
+                        market = "美股"
+                    stocks.append({"code": code, "name": name, "market": market, "price": None, "chg": None})
+                    seen.add(code)
+            for recall in api_recall:
+                content = recall.get("content", "")
+                code_matches = re.findall(r'(?:sh|sz|SH|SZ)(\d{6})', content)
+                for cm in code_matches[:10]:
+                    prefix = "sh" if "SH" in content else "sz"
+                    full_code = f"{prefix}{cm}"
+                    if full_code not in seen:
+                        name_match = re.search(rf'{full_code}[^\n]*?([\u4e00-\u9fff]{{2,6}})', content)
+                        stocks.append({"code": full_code, "name": name_match.group(1) if name_match else full_code, "market": "A股", "price": None, "chg": None})
+                        seen.add(full_code)
+            if not stocks:
+                hk_match = re.findall(r'(HK\d{4,5})|(\d{4,5}\.HK)', query.upper())
                 for m in hk_match:
                     code = m[0] or m[1]
                     if code:
                         stocks.append({"code": code, "name": code, "market": "港股", "price": None, "chg": None})
-
-            us_match = re.findall(r'([A-Z]{1,5})', query.upper())
-            if us_match and not stocks:
+                us_match = re.findall(r'([A-Z]{1,5})', query.upper())
                 for m in us_match[:5]:
                     if len(m) >= 2 and m not in ('A', 'SH', 'SZ', 'HK', 'US'):
                         stocks.append({"code": m, "name": m, "market": "美股", "price": None, "chg": None})
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception):
+        pass  # neodata failed silently, fall through to local DB
 
-        return stocks[:15] if stocks else [{"error": "no_results", "message": f"未找到「{query}」相关股票"}]
+    # Fallback: search local stocks_db.json if neodata found nothing
+    if not stocks:
+        q_lower = query.lower().replace(".", "").replace(" ", "")
+        with _stock_cache_lock:
+            for code, s in _stock_cache.items():
+                name_lower = s.get("n", "").lower()
+                if q_lower in name_lower or q_lower in code or q_lower in s.get("memo", ""):
+                    stocks.append({
+                        "code": code, "name": s["n"], "market": s.get("mkt", "A股"),
+                        "price": s.get("p"), "chg": s.get("chg")
+                    })
+                    if len(stocks) >= 15:
+                        break
 
-    except subprocess.TimeoutExpired:
-        return [{"error": "timeout", "message": "查询超时，请重试"}]
-    except json.JSONDecodeError as e:
-        return [{"error": "parse_error", "message": f"数据解析失败: {str(e)[:100]}"}]
-    except Exception as e:
-        return [{"error": "exception", "message": str(e)[:200]}]
+    return stocks[:15] if stocks else [{"error": "no_results", "message": f"未找到「{query}」相关股票"}]
 
 
 # ============================================================
@@ -293,6 +268,141 @@ def get_quote(code: str) -> dict:
 
     # 如果没有找到匹配行，则也返回结构化错误信息
     return {"error": "no_data", "message": "未获取到行情数据"}
+def get_ma(code: str) -> dict:
+    """计算 MA5/10/20/60 均线"""
+    try:
+        r = subprocess.run(
+            [str(NODE_EXE), "scripts/index.js", "kline", code,
+             "--period", "day", "--limit", "65"],
+            cwd=str(WESTOCK_DIR), capture_output=True, text=True,
+            encoding='utf-8', errors='replace', timeout=15,
+        )
+        if r.returncode != 0:
+            return {"error": "kline_failed"}
+        prices = []
+        for line in r.stdout.strip().split("\n"):
+            line = line.strip()
+            if not line.startswith("|") or "---" in line or "date" in line:
+                continue
+            parts = [c.strip() for c in line.split("|") if c.strip()]
+            if len(parts) < 3: continue
+            try:
+                prices.append(float(parts[2]))  # last
+            except: pass
+        if len(prices) < 5:
+            return {"error": "insufficient_data"}
+        prices.reverse()  # oldest first
+        def avg(n):
+            return round(sum(prices[-n:]) / n, 2) if len(prices) >= n else 0
+        cur = prices[-1]
+        return {
+            "ma5": avg(5), "ma10": avg(10), "ma20": avg(20), "ma60": avg(60),
+            "current": cur,
+            "above_ma5": cur > avg(5), "above_ma10": cur > avg(10),
+            "above_ma20": cur > avg(20), "above_ma60": cur > avg(60),
+        }
+    except Exception as e:
+        return {"error": "ma_failed", "message": str(e)[:100]}
+
+
+def get_fund_flow(code: str) -> dict:
+    """获取主力资金流入数据"""
+    try:
+        r = subprocess.run(
+            [str(NODE_EXE), "scripts/index.js", "fund", "flow", code],
+            cwd=str(WESTOCK_DIR), capture_output=True, text=True,
+            encoding='utf-8', errors='replace', timeout=15,
+        )
+        if r.returncode != 0:
+            return {"error": "flow_failed"}
+        for line in r.stdout.strip().split("\n"):
+            line = line.strip()
+            if not line.startswith("|") or "---" in line or "code" in line:
+                continue
+            parts = [c.strip() for c in line.split("|") if c.strip()]
+            if len(parts) < 19: continue
+            try:
+                return {
+                    "date": parts[3],
+                    "main_net": float(parts[9] or 0),        # MainNetFlow
+                    "main_net_5d": float(parts[12] or 0),    # MainNetFlow5D
+                    "main_net_20d": float(parts[11] or 0),   # MainNetFlow20D
+                    "main_inflow": float(parts[5] or 0),     # MainInFlow
+                    "main_outflow": float(parts[13] or 0),   # MainOutFlow
+                    "retail_inflow": float(parts[15] or 0),  # RetailInFlow
+                    "retail_outflow": float(parts[16] or 0), # RetailOutFlow
+                    "main_rank": int(parts[8] or 0),         # MainInflowRank
+                }
+            except: pass
+        return {"error": "no_flow_data"}
+    except Exception as e:
+        return {"error": "flow_failed", "message": str(e)[:100]}
+
+
+def get_finance(code: str) -> dict:
+    """获取最新财务摘要（季度营收/净利）"""
+    try:
+        r = subprocess.run(
+            [str(NODE_EXE), "scripts/index.js", "finance", code, "--num", "2"],
+            cwd=str(WESTOCK_DIR), capture_output=True, text=True,
+            encoding='utf-8', errors='replace', timeout=20,
+        )
+        if r.returncode != 0:
+            return {"error": "finance_failed"}
+        text = r.stdout
+        result = {}
+        in_lrb = False
+        header = []
+        rows = []
+        for line in text.strip().split("\n"):
+            if "**lrb**" in line.lower():
+                in_lrb = True; continue
+            if line.startswith("**") and in_lrb:
+                break
+            if not in_lrb: continue
+            line = line.strip()
+            if not line.startswith("|") or "---" in line: continue
+            parts = [c.strip() for c in line.split("|") if c.strip()]
+            if not header:
+                header = parts; continue
+            if len(parts) == len(header):
+                rows.append(dict(zip(header, parts)))
+        
+        if rows:
+            r0 = rows[0]
+            eps_col = "BasicEPS"
+            rev_q = next((k for k in r0 if "OperatingRevenue_Q" in k), None)
+            profit_q = next((k for k in r0 if "NPParentCompany" in k and "_Q" in k), None)
+            profit_col = next((k for k in r0 if "NPParentCompany" in k and "Q" not in k and "TTM" not in k), None)
+            
+            rev_g, profit_g = 0, 0
+            if rev_q and len(rows) > 1:
+                try: rev_g = (float(rows[0][rev_q]) / float(rows[1][rev_q]) - 1) * 100
+                except: pass
+            if profit_q and len(rows) > 1:
+                try: profit_g = (float(rows[0][profit_q]) / float(rows[1][profit_q]) - 1) * 100
+                except: pass
+            
+            def fmt(v):
+                try: fv = float(v)
+                except: return v
+                if abs(fv) >= 1e8: return f"{fv/1e8:.2f}亿"
+                if abs(fv) >= 1e4: return f"{fv/1e4:.2f}万"
+                return f"{fv:.2f}"
+            
+            result = {
+                "date": rows[0].get("EndDate", "—"),
+                "eps": rows[0].get(eps_col, "—"),
+                "revenue_q": fmt(rows[0].get(rev_q, "0")),
+                "revenue_growth": round(rev_g, 1),
+                "profit_q": fmt(rows[0].get(profit_q, "0")),
+                "profit_growth": round(profit_g, 1),
+            }
+        return result if result else {"error": "no_finance_data"}
+    except Exception as e:
+        return {"error": "finance_failed", "message": str(e)[:100]}
+
+
 # ============================================================
 # Unified Fear Index Calculator (single source of truth)
 # ============================================================
@@ -420,9 +530,19 @@ class StockAPIHandler(BaseHTTPRequestHandler):
                     self._send_json({"error": "missing_code"}, 400)
                     return
                 print(f"  [ANALYZE] {code}", flush=True)
-                quote = get_quote(code)
-                if quote is None:
-                    quote = {"error": "no_data", "message": "未获取到行情数据"}
+                from concurrent.futures import ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=4) as ex:
+                    f_quote = ex.submit(get_quote, code)
+                    f_ma = ex.submit(get_ma, code)
+                    f_flow = ex.submit(get_fund_flow, code)
+                    f_fin = ex.submit(get_finance, code)
+                    quote = f_quote.result() or {"error": "no_data"}
+                    ma = f_ma.result() or {"error": "ma_failed"}
+                    flow = f_flow.result() or {"error": "flow_failed"}
+                    fin = f_fin.result() or {"error": "finance_failed"}
+                quote["ma"] = ma
+                quote["flow"] = flow
+                quote["finance"] = fin
 
                 if "error" not in quote or quote.get("error") == "parse_partial":
                     # Calculate fear score based on available data
@@ -540,6 +660,23 @@ class StockAPIHandler(BaseHTTPRequestHandler):
                         "updated": _stock_last_update,
                         "count": len(_stock_cache),
                     })
+
+            elif path == "/api/suggest":
+                q = params.get("q", [""])[0].strip().lower()
+                results = []
+                if len(q) >= 2:
+                    with _stock_cache_lock:
+                        for code, s in _stock_cache.items():
+                            n = s.get("n", "")
+                            if q in n or q in code.replace("sh","").replace("sz","").replace("hk","").replace("us",""):
+                                results.append({
+                                    "code": code, "name": n,
+                                    "market": s.get("mkt", "A股"),
+                                    "memo": s.get("memo", ""),
+                                })
+                                if len(results) >= 15:
+                                    break
+                self._send_json({"results": results, "query": q})
 
             else:
                 self._send_json({"error": "not_found", "path": path}, 404)
