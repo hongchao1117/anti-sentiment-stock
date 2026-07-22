@@ -12,7 +12,7 @@ import subprocess
 import threading
 import time
 import traceback
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
@@ -38,6 +38,63 @@ _stock_cache_lock = threading.Lock()
 _stock_last_update = 0
 _stock_refresh_time = {}  # code -> timestamp of last refresh
 _fear_history = {}  # date -> score, in-memory only
+
+# Index cache: background thread refreshes every 60s
+_indices_cache = {}
+_fear_cache = {"fear_score": 50}
+
+def fear_index_refresher():
+    """Background: compute fear index every 60s, store in cache"""
+    global _fear_cache
+    while True:
+        try:
+            fd = calculate_fear_index()
+            if fd: _fear_cache = fd
+        except: pass
+        time.sleep(60)
+
+def get_index_data(code: str, name: str) -> dict:
+    """Fetch K-line for index and compute MA5/10/20/60"""
+    try:
+        r = subprocess.run(
+            [str(NODE_EXE), "scripts/index.js", "kline", code,
+             "--period", "day", "--limit", "65"],
+            cwd=str(WESTOCK_DIR), capture_output=True, text=True,
+            encoding='utf-8', errors='replace', timeout=15,
+        )
+        if r.returncode != 0:
+            return {"code": code, "name": name, "error": "kline_failed"}
+        prices = []
+        for line in r.stdout.strip().split("\n"):
+            parts = [c.strip() for c in line.split("|") if c.strip()]
+            if len(parts) < 3: continue
+            try: prices.append(float(parts[2]))
+            except: pass
+        if len(prices) < 5:
+            return {"code": code, "name": name, "error": "no_data"}
+        prices.reverse()
+        cur = prices[-1]; prev = prices[-2] if len(prices) >= 2 else cur
+        def avg(n): return round(sum(prices[-n:]) / n, 2) if len(prices) >= n else 0
+        return {
+            "code": code, "name": name,
+            "price": round(cur, 2),
+            "chg_pct": round((cur - prev) / prev * 100, 2) if prev else 0,
+            "ma5": avg(5), "ma10": avg(10), "ma20": avg(20), "ma60": avg(60),
+        }
+    except: return {"code": code, "name": name, "error": "exception"}
+
+def indices_refresher():
+    """Background: refresh index MA data every 60s"""
+    global _indices_cache
+    INDICES = [("sh000001", "上证指数"), ("sh000688", "科创50"), ("sz399006", "创业板指")]
+    while True:
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=3) as ex:
+                futures = {code: ex.submit(get_index_data, code, n) for code, n in INDICES}
+            _indices_cache = {code: futures[code].result() for code, _ in INDICES}
+        except: pass
+        time.sleep(60)
 
 def refresh_stock_cache():
     """Background thread: refresh all stock quotes every 120s"""
@@ -646,11 +703,7 @@ class StockAPIHandler(BaseHTTPRequestHandler):
 
             # ---- Live fear index (for frontend polling) ----
             elif path == "/api/fear-index":
-                fd = calculate_fear_index()
-                if fd:
-                    self._send_json(fd)
-                else:
-                    self._send_json({"error": "failed"}, 500)
+                self._send_json(_fear_cache)
 
             # ---- Cached stock quotes (ms response) ----
             elif path == "/api/stocks":
@@ -660,6 +713,9 @@ class StockAPIHandler(BaseHTTPRequestHandler):
                         "updated": _stock_last_update,
                         "count": len(_stock_cache),
                     })
+
+            elif path == "/api/indices":
+                self._send_json(_indices_cache)
 
             elif path == "/api/suggest":
                 q = params.get("q", [""])[0].strip().lower()
@@ -874,37 +930,24 @@ class StockAPIHandler(BaseHTTPRequestHandler):
         return calculate_fear_index()
 
     def _serve_live_main_page(self):
-        """Serve the main page with live market data injected"""
+        """Serve the main page with live market data injected — using cached data."""
         with open(str(HTML_FILE), "r", encoding="utf-8") as f:
             html = f.read()
 
-        # Calculate fresh fear index
-        fear_data = self._calculate_fear_index()
-        
-        if fear_data:
-            fear_score = fear_data["fear_score"]
-            sz_price = fear_data["sz_price"]
-            sz_chg = fear_data["sz_chg"]
-            sz_d20 = fear_data["sz_d20"]
-            sz_d60 = fear_data["sz_d60"]
-            high52 = fear_data.get("high52", 4258)
-            dd_val = round(((high52 - sz_price) / high52 * 100), 1) if high52 and sz_price else 0
-            vol_score = fear_data.get("vol_score", 5)
-            margin_score = fear_data.get("margin_score", 6)
-            breadth_score = fear_data.get("breadth_score", 8)
-            dd_seg_score = fear_data.get("dd_score", 3)
-            media_score = fear_data.get("media_score", 5)
-            account_score = fear_data.get("account_score", 5)
-        else:
-            fear_score = 50
-            sz_price = 4000
-            sz_chg = 0
-            sz_d20 = 0
-            sz_d60 = 0
-            vol_score = margin_score = breadth_score = 10
-            dd_seg_score = media_score = account_score = 5
-            high52 = 4300
-            dd_val = 7
+        fear_data = _fear_cache  # use background cache, instant
+        fear_score = fear_data.get("fear_score", 50)
+        sz_price = fear_data.get("sz_price", 4000)
+        sz_chg = fear_data.get("sz_chg", 0)
+        sz_d20 = fear_data.get("sz_d20", 0)
+        sz_d60 = fear_data.get("sz_d60", 0)
+        high52 = fear_data.get("high52", 4258)
+        dd_val = round(((high52 - sz_price) / high52 * 100), 1) if high52 and sz_price else 0
+        vol_score = fear_data.get("vol_score", 5)
+        margin_score = fear_data.get("margin_score", 6)
+        breadth_score = fear_data.get("breadth_score", 8)
+        dd_seg_score = fear_data.get("dd_score", 3)
+        media_score = fear_data.get("media_score", 5)
+        account_score = fear_data.get("account_score", 5)
 
         # Update fearScore in JS
         html = re.sub(r"var fearScore = [\d.]+;", f"var fearScore = {fear_score};", html)
@@ -1210,6 +1253,34 @@ class StockAPIHandler(BaseHTTPRequestHandler):
             )
         html = html.replace('<div class="factor-list"><!--FACTOR_LIST--></div>',
                            f'<div class="factor-list">{factor_html}</div>')
+
+        # Inject index MA data from background cache
+        import json as json2
+        indices_json = json2.dumps(_indices_cache, ensure_ascii=False)
+        html = html.replace("var indicesData = {};", f"var indicesData = {indices_json};")
+        
+        # Server-side render the index cards (replaces JS rendering)
+        def render_idx_cards(cache):
+            order = [("sh000001", "上证指数"), ("sh000688", "科创50"), ("sz399006", "创业板指")]
+            cards = ""
+            for code, name in order:
+                idx = cache.get(code, {})
+                price = idx.get("price", 0)
+                chg = idx.get("chg_pct", 0)
+                sign = "+" if chg >= 0 else ""
+                color = "var(--red)" if chg >= 0 else "var(--green)"
+                def no(v): return str(int(v)) if v and v > 0 else "—"
+                def above(v):
+                    if not v or not price: return "var(--text-muted)"
+                    return "var(--red)" if price >= v else "var(--green)"
+                cards += f'''<div class="idx-card"><div class="idx-name">{name}</div>
+<div class="idx-price" style="color:{color};">{price:.2f}</div>
+<div class="idx-chg" style="color:{color};">{sign}{chg:.2f}%</div>
+<div class="idx-mas">MA5 <b style="color:{above(idx.get('ma5'))}">{no(idx.get('ma5'))}</b> | MA10 <b style="color:{above(idx.get('ma10'))}">{no(idx.get('ma10'))}</b> | MA20 <b style="color:{above(idx.get('ma20'))}">{no(idx.get('ma20'))}</b> | MA60 <b style="color:{above(idx.get('ma60'))}">{no(idx.get('ma60'))}</b></div></div>'''
+            return cards
+        
+        idx_cards = render_idx_cards(_indices_cache)
+        html = html.replace("<!--INDICES_SERVER-->\n  <div class=\"idx-card\"><div class=\"idx-name\">上证指数</div><div class=\"idx-price\">—</div><div class=\"idx-chg\">—</div><div class=\"idx-mas\">MA5 — | MA10 — | MA20 — | MA60 —</div></div>\n  <div class=\"idx-card\"><div class=\"idx-name\">科创50</div><div class=\"idx-price\">—</div><div class=\"idx-chg\">—</div><div class=\"idx-mas\">MA5 — | MA10 — | MA20 — | MA60 —</div></div>\n  <div class=\"idx-card\"><div class=\"idx-name\">创业板指</div><div class=\"idx-price\">—</div><div class=\"idx-chg\">—</div><div class=\"idx-mas\">MA5 — | MA10 — | MA20 — | MA60 —</div></div>", idx_cards)
         
         self._send_html_str(html)
 
@@ -1282,7 +1353,7 @@ def backfill_history():
     print(f"  [BACKFILL] {filled} days computed, {len(_fear_history)} total", flush=True)
 
 def main():
-    server = HTTPServer(("127.0.0.1", PORT), StockAPIHandler)
+    server = ThreadingHTTPServer(("127.0.0.1", PORT), StockAPIHandler)
     print(f"""
 ╔══════════════════════════════════════════════╗
 ║   📈 全市场股票查询服务已启动                 ║
@@ -1305,6 +1376,8 @@ def main():
     backfill_history()
 
     # Start background stock refresher
+    threading.Thread(target=fear_index_refresher, daemon=True, name="fear-refresher").start()
+    threading.Thread(target=indices_refresher, daemon=True, name="indices-refresher").start()
     threading.Thread(target=refresh_stock_cache, daemon=True, name="stock-refresher").start()
 
     try:
