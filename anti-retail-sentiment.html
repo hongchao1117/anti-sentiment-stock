@@ -303,7 +303,7 @@ body {
 }
 
 .indices-row {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 12px 0 16px;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 12px 0 16px;
 }
 .idx-card {
   background: var(--card-bg); border: 1px solid var(--border);
@@ -320,6 +320,44 @@ body {
 }
 .idx-mas {
   font-size: 11px; color: var(--text-muted); line-height: 1.6;
+}
+
+.stab-card { margin-bottom: 16px; }
+.stab-grid {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px;
+  align-items: stretch;
+}
+.stab-col {
+  border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px;
+  display: flex; flex-direction: column;
+}
+.stab-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
+}
+.stab-verdict {
+  font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px;
+  white-space: nowrap;
+}
+.stab-verdict.v-ok { background: #d3f9d8; color: #2b8a3e; }
+.stab-verdict.v-mid { background: #fff3bf; color: #e67700; }
+.stab-verdict.v-no { background: #ffe3e3; color: #c92a2a; }
+.stab-rows { flex: 1; }
+.stab-row {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; padding: 3px 0; min-height: 24px;
+}
+.stab-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.stab-dot.ok { background: #2f9e44; }
+.stab-dot.no { background: #d0d0d0; }
+.stab-row .stab-name { white-space: nowrap; }
+.stab-row .stab-val {
+  margin-left: auto; color: var(--text-muted); font-size: 11px;
+  max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: right;
+}
+@media (max-width: 700px) {
+  .stab-grid { grid-template-columns: 1fr; }
 }
 
 /* Dropdown */
@@ -496,6 +534,17 @@ body {
   <div class="idx-card"><div class="idx-name">上证指数</div><div class="idx-price">—</div><div class="idx-chg">—</div><div class="idx-mas">MA5 — | MA10 — | MA20 — | MA60 —</div></div>
   <div class="idx-card"><div class="idx-name">科创50</div><div class="idx-price">—</div><div class="idx-chg">—</div><div class="idx-mas">MA5 — | MA10 — | MA20 — | MA60 —</div></div>
   <div class="idx-card"><div class="idx-name">创业板指</div><div class="idx-price">—</div><div class="idx-chg">—</div><div class="idx-mas">MA5 — | MA10 — | MA20 — | MA60 —</div></div>
+</div>
+
+<!-- Stabilization signals -->
+<div class="card stab-card">
+  <h3><span class="icon">📍</span>企稳信号检测 <span style="font-size:12px;color:var(--text-muted);font-weight:400;">— 5个信号逐级验证：止跌 → 确认 → 趋势</span></h3>
+  <div class="stab-grid" id="stabGrid">
+    <!--STAB_SERVER-->
+    <div class="stab-col"><div class="stab-head"><b>上证指数</b><span class="stab-verdict v-no">计算中</span></div></div>
+    <div class="stab-col"><div class="stab-head"><b>科创50</b><span class="stab-verdict v-no">计算中</span></div></div>
+    <div class="stab-col"><div class="stab-head"><b>创业板指</b><span class="stab-verdict v-no">计算中</span></div></div>
+  </div>
 </div>
 
 <!-- Stock Analysis Result -->
@@ -916,29 +965,27 @@ var stockDB = {"sh600036":{n:"招商银行",p:37.46,chg:-1.27,pe:6.27,pb:0.83,h5
 
     // Show loading
     analysisContent.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);">' +
-      '<div style="font-size:24px;margin-bottom:8px;">⏳</div>正在获取 ' + code + ' 数据...</div>';
+      '<div style="font-size:24px;margin-bottom:8px;">⏳</div>正在获取 ' + code + ' 完整分析（含企稳检测，约15秒）...</div>';
     analysisPanel.classList.add('active');
-    analysisPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    analysisPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-    // Try API first, fallback to local
-    if (apiOnline) {
-      fetch(API_BASE + '/api/analyze?code=' + encodeURIComponent(code))
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-          if (data.error && data.error !== 'parse_partial') {
-            // API failed, try local
-            tryLocal(code);
-          } else {
-            renderFromAPI(data);
-          }
-        })
-        .catch(function() {
-          apiOnline = false;
-          tryLocal(code);
-        });
-    } else {
-      tryLocal(code);
-    }
+    // Fetch the full server-rendered analysis page and embed its content
+    fetch('/stock?code=' + encodeURIComponent(code))
+      .then(function(r) { return r.text(); })
+      .then(function(htmlText) {
+        var doc = new DOMParser().parseFromString(htmlText, 'text/html');
+        var src = doc.querySelector('.stock-analysis');
+        if (src && src.innerHTML.trim().length > 50) {
+          analysisContent.innerHTML = src.innerHTML;
+        } else {
+          analysisContent.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);">' +
+            '未获取到「' + code + '」数据<br><small>请检查代码是否正确，或稍后重试</small></div>';
+        }
+      })
+      .catch(function() {
+        analysisContent.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);">' +
+          '分析服务暂不可用<br><small>请稍后重试</small></div>';
+      });
   }
 
   function tryLocal(code) {
@@ -1461,6 +1508,7 @@ var stocks = [];  // <!--POOL_STOCKS--> injected by server
   // Initial load after 1.5s (wait for ECharts to initialize)
   // Render indices immediately from embedded data, then refresh periodically
   renderIndices(indicesData);
+  renderStab(indicesData);
 
   setTimeout(function() { loaderReady = true; refresh(); refreshStocks(); refreshIndices(); }, 1500);
 
@@ -1475,8 +1523,33 @@ function refreshIndices() {
     .then(function(r) { return r.json(); })
     .then(function(d) {
       renderIndices(d);
+      renderStab(d);
     })
     .catch(function() {});
+}
+
+function renderStab(d) {
+  var grid = document.getElementById('stabGrid');
+  if (!grid) return;
+  var order = ['sh000001','sh000688','sz399006'];
+  var names = {'sh000001':'上证指数','sh000688':'科创50','sz399006':'创业板指'};
+  var html = '';
+  for (var i = 0; i < order.length; i++) {
+    var stab = (d[order[i]] || {}).stab;
+    if (!stab) {
+      html += '<div class="stab-col"><div class="stab-head"><b>' + names[order[i]] + '</b><span class="stab-verdict v-no">计算中</span></div></div>';
+      continue;
+    }
+    var rows = '';
+    for (var j = 0; j < stab.signals.length; j++) {
+      var sg = stab.signals[j];
+      rows += '<div class="stab-row"><span class="stab-dot ' + (sg.ok ? 'ok' : 'no') + '"></span><span class="stab-name">' + sg.name + '</span><span class="stab-val">' + sg.val + '</span></div>';
+    }
+    html += '<div class="stab-col"><div class="stab-head"><b>' + names[order[i]] + '</b>'
+      + '<span class="stab-verdict v-' + stab.vclass + '">' + stab.verdict + ' ' + stab.count + '/5</span></div>'
+      + '<div class="stab-rows">' + rows + '</div></div>';
+  }
+  grid.innerHTML = html;
 }
 
 function renderIndices(d) {

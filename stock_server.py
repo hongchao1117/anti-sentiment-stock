@@ -6,11 +6,19 @@
 """
 
 import json
+import sys
 import webbrowser
 import re
 import subprocess
 import threading
 import time
+
+# Windows GBK console can't print emoji — force UTF-8 output
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
 import traceback
 from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -53,33 +61,109 @@ def fear_index_refresher():
         except: pass
         time.sleep(60)
 
+def assess_stabilization(days):
+    """5-signal stabilization check. days: ascending [{close,high,low,vol}], latest last."""
+    closes = [d["close"] for d in days]
+    lows = [d["low"] for d in days]
+    vols = [d["vol"] for d in days]
+    n = len(days)
+    cur = closes[-1]
+    ma5 = sum(closes[-5:]) / 5 if n >= 5 else 0
+    ma10 = sum(closes[-10:]) / 10 if n >= 10 else 0
+
+    # S1 不再创新低: 近5日最低 >= 前15日最低 (允许0.5%误差)
+    if n >= 20:
+        recent_low, prior_low = min(lows[-5:]), min(lows[-20:-5])
+        s1 = recent_low >= prior_low * 0.995
+        s1_val = f"近5日低{recent_low:.0f} vs 前低{prior_low:.0f}"
+    else:
+        s1, s1_val = False, "数据不足"
+
+    # S2 缩量: 近5日均量 <= 前20日均量 * 0.75
+    if n >= 25:
+        v5, v20 = sum(vols[-5:]) / 5, sum(vols[-25:-5]) / 20
+        s2 = v20 > 0 and v5 <= v20 * 0.75
+        s2_val = f"量比{v5/v20*100:.0f}%(≤75%为缩)" if v20 else "—"
+    else:
+        s2, s2_val = False, "数据不足"
+
+    # S3 站上 MA5/MA10
+    s3a = ma5 > 0 and cur >= ma5
+    s3 = s3a and ma10 > 0 and cur >= ma10
+    s3_val = "站上MA5+MA10" if s3 else ("仅站上MA5" if s3a else f"在MA5 {ma5:.0f}下方")
+
+    # S4 回踩不破: 近5日收盘最低 >= MA10 (需在已站上MA10前提下)
+    if s3:
+        low5c = min(closes[-5:])
+        s4 = low5c >= ma10 * 0.995
+        s4_val = f"5日最低收{low5c:.0f}{'≥' if s4 else '<'}MA10"
+    else:
+        s4, s4_val = False, "未站上，观察中"
+
+    # S5 MA5拐头向上 + 当日放量(>=前5日均量1.2倍)
+    if n >= 9:
+        ma5_prev = sum(closes[-8:-3]) / 5
+        turning = ma5 > ma5_prev
+        v_prev5 = sum(vols[-6:-1]) / 5
+        vol_up = v_prev5 > 0 and vols[-1] >= v_prev5 * 1.2
+        s5 = turning and vol_up
+        s5_val = ("MA5↑" if turning else "MA5↓") + ("+放量" if vol_up else "+未放量")
+    else:
+        s5, s5_val = False, "数据不足"
+
+    count = sum([s1, s2, s3, s4, s5])
+    if count >= 4: verdict, vclass = "企稳确认", "ok"
+    elif count == 3: verdict, vclass = "企稳初现", "mid"
+    elif count == 2: verdict, vclass = "企稳观察", "mid"
+    else: verdict, vclass = "未企稳", "no"
+
+    return {
+        "signals": [
+            {"name": "不再创新低", "ok": s1, "val": s1_val},
+            {"name": "缩量到地量", "ok": s2, "val": s2_val},
+            {"name": "站上MA5/MA10", "ok": s3, "val": s3_val},
+            {"name": "回踩不破", "ok": s4, "val": s4_val},
+            {"name": "均线拐头+放量", "ok": s5, "val": s5_val},
+        ],
+        "count": count, "verdict": verdict, "vclass": vclass,
+    }
+
+def fetch_kline_days(code: str, limit: int = 65):
+    """Fetch daily K-line; return ascending [{close,high,low,vol}] (latest last)."""
+    r = subprocess.run(
+        [str(NODE_EXE), "scripts/index.js", "kline", code,
+         "--period", "day", "--limit", str(limit)],
+        cwd=str(WESTOCK_DIR), capture_output=True, text=True,
+        encoding='utf-8', errors='replace', timeout=20,
+    )
+    if r.returncode != 0:
+        return []
+    days = []
+    for line in r.stdout.strip().split("\n"):
+        parts = [c.strip() for c in line.split("|") if c.strip()]
+        if len(parts) < 6: continue
+        try:
+            days.append({"close": float(parts[2]), "high": float(parts[3]),
+                         "low": float(parts[4]), "vol": float(parts[5])})
+        except: pass
+    days.reverse()  # API returns newest-first → ascending
+    return days
+
 def get_index_data(code: str, name: str) -> dict:
-    """Fetch K-line for index and compute MA5/10/20/60"""
+    """Fetch K-line for index, compute MA5/10/20/60 + stabilization signals"""
     try:
-        r = subprocess.run(
-            [str(NODE_EXE), "scripts/index.js", "kline", code,
-             "--period", "day", "--limit", "65"],
-            cwd=str(WESTOCK_DIR), capture_output=True, text=True,
-            encoding='utf-8', errors='replace', timeout=15,
-        )
-        if r.returncode != 0:
-            return {"code": code, "name": name, "error": "kline_failed"}
-        prices = []
-        for line in r.stdout.strip().split("\n"):
-            parts = [c.strip() for c in line.split("|") if c.strip()]
-            if len(parts) < 3: continue
-            try: prices.append(float(parts[2]))
-            except: pass
-        if len(prices) < 5:
+        days = fetch_kline_days(code, 65)
+        if len(days) < 25:
             return {"code": code, "name": name, "error": "no_data"}
-        prices.reverse()
-        cur = prices[-1]; prev = prices[-2] if len(prices) >= 2 else cur
+        prices = [d["close"] for d in days]
+        cur = prices[-1]; prev = prices[-2]
         def avg(n): return round(sum(prices[-n:]) / n, 2) if len(prices) >= n else 0
         return {
             "code": code, "name": name,
             "price": round(cur, 2),
             "chg_pct": round((cur - prev) / prev * 100, 2) if prev else 0,
             "ma5": avg(5), "ma10": avg(10), "ma20": avg(20), "ma60": avg(60),
+            "stab": assess_stabilization(days),
         }
     except: return {"code": code, "name": name, "error": "exception"}
 
@@ -522,6 +606,7 @@ class StockAPIHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store, must-revalidate")
         self.end_headers()
         self.wfile.write(body)
 
@@ -814,9 +899,8 @@ class StockAPIHandler(BaseHTTPRequestHandler):
         d60 = quote.get("d60", 0)
         market = quote.get("market", "A股")
 
-        # Calculate scores (use unified fear index)
-        fear_data = calculate_fear_index()
-        fear_score = fear_data["fear_score"] if fear_data else 50
+        # Calculate scores (use cached fear index — instant)
+        fear_score = _fear_cache.get("fear_score", 50)
         dd_pct = ((h52 - price) / h52 * 100) if h52 and price else 0
         dd_score = min(35, round(max(0, dd_pct) * 1.0)) if dd_pct >= 5 else round(max(0, dd_pct) * 0.5)
         
@@ -849,6 +933,51 @@ class StockAPIHandler(BaseHTTPRequestHandler):
         d20_cls = "up" if d20 >= 0 else "down"
         d60_cls = "up" if d60 >= 0 else "down"
         ytd_cls = "up" if ytd >= 0 else "down"
+
+        # 企稳信号评估（个股 K 线，仅 A股/港股 代码格式适用）
+        stab_html = ""
+        try:
+            days = fetch_kline_days(code, 65)
+            if len(days) < 25:
+                time.sleep(2)
+                days = fetch_kline_days(code, 65)  # westock 偶发返回空，重试一次
+            if len(days) >= 25:
+                stab = assess_stabilization(days)
+                rows = ""
+                for sg in stab["signals"]:
+                    dot = "ok" if sg["ok"] else "no"
+                    rows += (f'<div class="stab-row"><span class="stab-dot {dot}"></span>'
+                             f'<span class="stab-name">{sg["name"]}</span>'
+                             f'<span class="stab-val">{sg["val"]}</span></div>')
+            else:
+                stab = None
+        except Exception:
+            stab = None
+        if stab is None:
+            stab_html = ('<div class="card" style="background:#fff;border:1px solid #e9ecef;'
+                         'border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:12px;'
+                         'color:#8e8ea0;">📏 企稳信号检测：K线数据暂时获取失败，刷新重试</div>')
+        if stab:
+            stab_html = f'''
+<style>
+.stab-head{{display:flex;align-items:center;justify-content:space-between;padding-bottom:8px;border-bottom:1px solid #e9ecef;}}
+.stab-verdict{{font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px;white-space:nowrap;}}
+.stab-verdict.v-ok{{background:#d3f9d8;color:#2b8a3e;}}
+.stab-verdict.v-mid{{background:#fff3bf;color:#e67700;}}
+.stab-verdict.v-no{{background:#ffe3e3;color:#c92a2a;}}
+.stab-row{{display:flex;align-items:center;gap:6px;font-size:12px;padding:3px 0;min-height:24px;}}
+.stab-dot{{width:8px;height:8px;border-radius:50%;flex-shrink:0;}}
+.stab-dot.ok{{background:#2f9e44;}}
+.stab-dot.no{{background:#d0d0d0;}}
+.stab-name{{white-space:nowrap;}}
+.stab-val{{margin-left:auto;color:#8e8ea0;font-size:11px;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;}}
+</style>
+<div class="card" style="background:#fff;border:1px solid #e9ecef;border-radius:10px;padding:14px 16px;margin-bottom:16px;">
+  <div class="stab-head" style="margin-bottom:10px;"><b>📏 企稳信号检测</b>
+    <span class="stab-verdict v-{stab["vclass"]}">{stab["verdict"]} {stab["count"]}/5</span></div>
+  <div class="stab-rows">{rows}</div>
+</div>'''
+
         dv_str = f"{dv:.2f}%" if dv > 0 else "—"
         price_str = f"¥{price:,.2f}" if price else "—"
         mkt_tag = "🇭🇰" if market == "港股" else ("🇺🇸" if market == "美股" else "🇨🇳")
@@ -898,6 +1027,7 @@ class StockAPIHandler(BaseHTTPRequestHandler):
   <div class="score-chip"><div class="chip-value" style="color:{'#e03131' if ytd < -15 else ('#f08c00' if ytd < 0 else '#2f9e44')};">{mom_score}</div><div class="chip-label">恐慌动量 /20</div></div>
   <div class="score-chip"><div class="chip-value" style="color:var(--fear-mid);">{mkt_overlay}</div><div class="chip-label">大盘加成 /20</div></div>
 </div>
+{stab_html}
 <div class="stock-recommendation stock-rec-{rec_class}">
   <div class="stock-rec-icon">{icon}</div>
   <div class="stock-rec-text"><h4>{stars} {'强烈买入' if total >= 70 else ('分批买入' if total >= 55 else ('持有观望' if total >= 40 else ('谨慎减仓' if total >= 25 else '建议回避')))}</h4><p>{rec_desc}</p></div>
@@ -922,6 +1052,7 @@ class StockAPIHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store, must-revalidate")
         self.end_headers()
         self.wfile.write(body)
 
@@ -983,9 +1114,9 @@ class StockAPIHandler(BaseHTTPRequestHandler):
         # Inject dailyData (replaces old inline var dailyData)
         html = re.sub(r"var dailyData = \[[\s\S]*?\];", daily_js, html)
         
-        # Update stale dates outside the chart
+        # Update stale dates outside the chart — replace ANY date that isn't today
         for old_date in set(re.findall(r"20\d\d-\d\d-\d\d", html)):
-            if old_date != today and old_date < "2026-07-10":
+            if old_date != today:
                 html = html.replace(old_date, today)
         
         # Update 上证 header
@@ -1281,6 +1412,30 @@ class StockAPIHandler(BaseHTTPRequestHandler):
         
         idx_cards = render_idx_cards(_indices_cache)
         html = html.replace("<!--INDICES_SERVER-->\n  <div class=\"idx-card\"><div class=\"idx-name\">上证指数</div><div class=\"idx-price\">—</div><div class=\"idx-chg\">—</div><div class=\"idx-mas\">MA5 — | MA10 — | MA20 — | MA60 —</div></div>\n  <div class=\"idx-card\"><div class=\"idx-name\">科创50</div><div class=\"idx-price\">—</div><div class=\"idx-chg\">—</div><div class=\"idx-mas\">MA5 — | MA10 — | MA20 — | MA60 —</div></div>\n  <div class=\"idx-card\"><div class=\"idx-name\">创业板指</div><div class=\"idx-price\">—</div><div class=\"idx-chg\">—</div><div class=\"idx-mas\">MA5 — | MA10 — | MA20 — | MA60 —</div></div>", idx_cards)
+
+        # Render stabilization signal panel
+        def render_stab(cache):
+            order = [("sh000001", "上证指数"), ("sh000688", "科创50"), ("sz399006", "创业板指")]
+            out = ""
+            for code, name in order:
+                stab = cache.get(code, {}).get("stab")
+                if not stab:
+                    out += f'<div class="stab-col"><div class="stab-head"><b>{name}</b><span class="stab-verdict v-no">计算中</span></div></div>'
+                    continue
+                rows = ""
+                for sg in stab["signals"]:
+                    dot = "ok" if sg["ok"] else "no"
+                    rows += f'<div class="stab-row"><span class="stab-dot {dot}"></span><span class="stab-name">{sg["name"]}</span><span class="stab-val">{sg["val"]}</span></div>'
+                out += (f'<div class="stab-col"><div class="stab-head"><b>{name}</b>'
+                        f'<span class="stab-verdict v-{stab["vclass"]}">{stab["verdict"]} {stab["count"]}/5</span></div>'
+                        f'<div class="stab-rows">{rows}</div></div>')
+            return out
+
+        stab_html = render_stab(_indices_cache)
+        html = re.sub(
+            r'(<div class="stab-grid" id="stabGrid">)[\s\S]*?</div>\s*</div>(?=\s*<!--)',
+            lambda m: m.group(1) + '\n    ' + stab_html + '\n  </div>\n</div>',
+            html, count=1)
         
         self._send_html_str(html)
 
@@ -1290,33 +1445,39 @@ def backfill_history():
     today = time.strftime("%Y-%m-%d")
     
     print("  [BACKFILL] Fetching K-line...", flush=True)
-    try:
-        r = subprocess.run(
-            [str(NODE_EXE), "scripts/index.js", "kline", "sh000001",
-             "--start", "2025-01-01", "--end", today, "--limit", "300"],
-            cwd=str(WESTOCK_DIR), capture_output=True, text=True,
-            encoding='utf-8', errors='replace', timeout=30,
-        )
-        if r.returncode != 0:
-            print(f"  [BACKFILL] Failed, code={r.returncode}", flush=True)
-            return
-    except Exception as e:
-        print(f"  [BACKFILL] Error: {e}", flush=True)
-        return
-    
     klines = []
-    for line in r.stdout.strip().split("\n"):
-        line = line.strip()
-        if not line.startswith("|") or line.startswith("| ---") or "date" in line:
-            continue
-        parts = [c.strip() for c in line.split("|") if c.strip()]
-        if len(parts) < 8: continue
+    cmd = f'"{NODE_EXE}" scripts/index.js kline sh000001 --start 2025-01-01 --end {today} --limit 300'
+    for attempt in range(5):  # API is flaky, retry up to 5 times
         try:
-            klines.append({"date": parts[0], "price": float(parts[2]), "high": float(parts[3])})
-        except: pass
+            r = subprocess.run(
+                cmd,
+                cwd=str(WESTOCK_DIR), capture_output=True, text=True,
+                encoding='utf-8', errors='replace', timeout=60, shell=True,
+            )
+            if r.returncode != 0:
+                print(f"  [BACKFILL] try {attempt+1}: code={r.returncode}", flush=True)
+                time.sleep(3)
+                continue
+            klines = []
+            for line in r.stdout.strip().split("\n"):
+                line = line.strip()
+                if not line.startswith("|") or line.startswith("| ---") or "date" in line:
+                    continue
+                parts = [c.strip() for c in line.split("|") if c.strip()]
+                if len(parts) < 8: continue
+                try:
+                    klines.append({"date": parts[0], "price": float(parts[2]), "high": float(parts[3])})
+                except: pass
+            if len(klines) >= 60:
+                break
+            print(f"  [BACKFILL] try {attempt+1}: only {len(klines)} rows, retrying...", flush=True)
+            time.sleep(3)
+        except Exception as e:
+            print(f"  [BACKFILL] try {attempt+1} error: {e}", flush=True)
+            time.sleep(3)
     
     if len(klines) < 60:
-        print(f"  [BACKFILL] Only {len(klines)} rows, need 60+", flush=True)
+        print(f"  [BACKFILL] FAILED after 5 tries, got {len(klines)} rows", flush=True)
         return
     
     klines.sort(key=lambda x: x["date"])
