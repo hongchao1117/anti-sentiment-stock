@@ -305,6 +305,21 @@ body {
 .indices-row {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 12px 0 16px;
 }
+
+.turnover-card {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 18px; margin: 12px 0 14px;
+  display: flex; align-items: center; gap: 20px;
+}
+.turnover-left { min-width: 180px; flex-shrink: 0; }
+.turnover-label { font-size: 12px; color: var(--text-secondary); font-weight: 600; }
+.turnover-num { font-size: 26px; font-weight: 700; margin: 2px 0; }
+.turnover-vs { font-size: 12px; color: var(--text-muted); }
+.turnover-chart { flex: 1; height: 76px; min-width: 0; }
+@media (max-width: 700px) {
+  .turnover-card { flex-direction: column; align-items: stretch; gap: 6px; }
+  .turnover-chart { height: 60px; }
+}
 .idx-card {
   background: var(--card-bg); border: 1px solid var(--border);
   border-radius: 10px; padding: 14px 16px; text-align: center;
@@ -317,6 +332,10 @@ body {
 }
 .idx-chg {
   font-size: 13px; font-weight: 500; margin-bottom: 8px;
+}
+.idx-vol {
+  font-size: 11px; color: var(--text-muted); margin-bottom: 6px;
+  padding: 3px 0; border-top: 1px dashed var(--border); border-bottom: 1px dashed var(--border);
 }
 .idx-mas {
   font-size: 11px; color: var(--text-muted); line-height: 1.6;
@@ -513,6 +532,16 @@ body {
   <div class="subtitle">"别人恐惧我贪婪，别人贪婪我恐惧" —— 巴菲特</div>
   <div class="tagline">恐慌指数越高 → 买入信号越强</div>
   <div class="update-time" id="updateTime">数据更新：2026-07-13 | 上证指数 — <span>—</span></div>
+</div>
+
+<!-- Turnover Bar -->
+<div class="turnover-card">
+  <div class="turnover-left">
+    <div class="turnover-label">A股两市成交额 · 实时</div>
+    <div class="turnover-num" id="turnoverNum">—</div>
+    <div class="turnover-vs" id="turnoverVs">—</div>
+  </div>
+  <div class="turnover-chart" id="turnoverChart"></div>
 </div>
 
 <!-- Stock Search -->
@@ -1247,6 +1276,7 @@ var stockDB = {"sh600036":{n:"招商银行",p:37.46,chg:-1.27,pe:6.27,pb:0.83,h5
 
 var fearScore = 67;
 var indicesData = {};
+var turnoverData = {};
 
 var dailyData = [
   '2026-06-09',55, '2026-06-10',58, '2026-06-11',62, '2026-06-12',68,
@@ -1510,13 +1540,45 @@ var stocks = [];  // <!--POOL_STOCKS--> injected by server
   renderIndices(indicesData);
   renderStab(indicesData);
 
-  setTimeout(function() { loaderReady = true; refresh(); refreshStocks(); refreshIndices(); }, 1500);
+  setTimeout(function() { loaderReady = true; refresh(); refreshStocks(); refreshIndices(); renderTurnover(turnoverData); }, 1500);
 
-  // Poll every 60s — fear index + stock quotes + indices
+  // Poll every 60s — fear index + stock quotes + indices + turnover
   setInterval(refresh, REFRESH_INTERVAL * 1000);
   setInterval(refreshStocks, REFRESH_INTERVAL * 1000);
   setInterval(refreshIndices, REFRESH_INTERVAL * 1000);
+  setInterval(refreshTurnover, REFRESH_INTERVAL * 1000);
 })();
+
+var turnoverChart = null;
+function renderTurnover(d) {
+  if (!d || !d.history || !d.history.length) return;
+  var num = document.getElementById('turnoverNum');
+  var vs = document.getElementById('turnoverVs');
+  if (num) {
+    num.textContent = d.today >= 10000 ? (d.today / 10000).toFixed(2) + ' 万亿' : d.today.toFixed(0) + ' 亿';
+    var c = d.vs5 > 5 ? 'var(--red)' : (d.vs5 < -5 ? 'var(--green)' : 'var(--text-muted)');
+    vs.innerHTML = '较前5日均 <b style="color:' + c + ';">' + (d.vs5 > 0 ? '+' : '') + d.vs5 + '%</b>';
+  }
+  var dom = document.getElementById('turnoverChart');
+  if (dom && window.echarts) {
+    if (!turnoverChart) turnoverChart = echarts.init(dom);
+    var dates = d.history.map(function(h) { return h.date.slice(5); });
+    var amts = d.history.map(function(h) { return h.amt; });
+    var avg = amts.reduce(function(a, b) { return a + b; }, 0) / amts.length;
+    turnoverChart.setOption({
+      grid: { left: 4, right: 4, top: 6, bottom: 16 },
+      xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 9, color: '#8e8ea0' }, axisLine: { lineStyle: { color: '#e0e0e0' } }, axisTick: { show: false } },
+      yAxis: { show: false },
+      series: [{ type: 'bar', barWidth: '55%',
+        data: amts.map(function(a) { return { value: a, itemStyle: { color: a >= avg ? '#e03131' : '#2f9e44' } }; }) }],
+      tooltip: { trigger: 'axis', formatter: function(ps) { var p = ps[0]; return p.name + '<br>成交额 <b>' + p.value.toFixed(0) + ' 亿</b>'; } }
+    }, true);
+  }
+}
+function refreshTurnover() {
+  fetch('/api/turnover').then(function(r) { return r.json(); }).then(renderTurnover).catch(function() {});
+}
+window.addEventListener('resize', function() { if (turnoverChart) turnoverChart.resize(); });
 
 function refreshIndices() {
   fetch('/api/indices')
@@ -1568,10 +1630,16 @@ function renderIndices(d) {
       if (!v || !price) return 'var(--text-muted)';
       return price >= v ? 'var(--red)' : 'var(--green)';
     };
+    var amt = idx.amt_yi || 0;
+    var amtVs5 = idx.amt_vs5 || 0;
+    var amtColor = amtVs5 > 5 ? 'var(--red)' : (amtVs5 < -5 ? 'var(--green)' : 'var(--text-muted)');
+    var amtSign = amtVs5 > 0 ? '+' : '';
+    var amtStr = amt ? amt.toFixed(0) + '亿' : '—';
     html += '<div class="idx-card">';
     html += '<div class="idx-name">' + (idx.name || '—') + '</div>';
     html += '<div class="idx-price" style="color:' + color + ';">' + price.toFixed(2) + '</div>';
     html += '<div class="idx-chg" style="color:' + color + ';">' + sign + chg.toFixed(2) + '%</div>';
+    html += '<div class="idx-vol">成交额 <b>' + amtStr + '</b> <span style="color:' + amtColor + ';">' + amtSign + amtVs5 + '% vs 5日均</span></div>';
     html += '<div class="idx-mas">';
     html += 'MA5 <b style="color:' + above(idx.ma5) + '">' + no(idx.ma5) + '</b> | ';
     html += 'MA10 <b style="color:' + above(idx.ma10) + '">' + no(idx.ma10) + '</b> | ';

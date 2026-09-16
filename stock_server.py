@@ -49,6 +49,7 @@ _fear_history = {}  # date -> score, in-memory only
 
 # Index cache: background thread refreshes every 60s
 _indices_cache = {}
+_turnover_cache = {"today": 0, "vs5": 0, "history": []}
 _fear_cache = {"fear_score": 50}
 
 def fear_index_refresher():
@@ -143,8 +144,9 @@ def fetch_kline_days(code: str, limit: int = 65):
         parts = [c.strip() for c in line.split("|") if c.strip()]
         if len(parts) < 6: continue
         try:
-            days.append({"close": float(parts[2]), "high": float(parts[3]),
-                         "low": float(parts[4]), "vol": float(parts[5])})
+            days.append({"date": parts[0], "close": float(parts[2]), "high": float(parts[3]),
+                         "low": float(parts[4]), "vol": float(parts[5]),
+                         "amt": float(parts[6]) if len(parts) > 6 else 0})
         except: pass
     days.reverse()  # API returns newest-first → ascending
     return days
@@ -156,27 +158,52 @@ def get_index_data(code: str, name: str) -> dict:
         if len(days) < 25:
             return {"code": code, "name": name, "error": "no_data"}
         prices = [d["close"] for d in days]
+        amts = [d["amt"] for d in days]
         cur = prices[-1]; prev = prices[-2]
         def avg(n): return round(sum(prices[-n:]) / n, 2) if len(prices) >= n else 0
+        # 成交额：今日（亿） + 较前5日均值变化
+        amt_today = amts[-1] / 1e8 if amts[-1] else 0
+        amt5 = sum(amts[-6:-1]) / 5 if len(amts) >= 6 and sum(amts[-6:-1]) > 0 else 0
+        amt_vs5 = round((amts[-1] / amt5 - 1) * 100, 1) if amt5 else 0
+        # 最近15个交易日成交额历史（亿），供趋势图/两市合计用
+        amt_hist = [{"date": d["date"], "amt": round(d["amt"] / 1e8, 0)} for d in days[-15:]]
         return {
             "code": code, "name": name,
             "price": round(cur, 2),
             "chg_pct": round((cur - prev) / prev * 100, 2) if prev else 0,
             "ma5": avg(5), "ma10": avg(10), "ma20": avg(20), "ma60": avg(60),
+            "amt_yi": round(amt_today, 0), "amt_vs5": amt_vs5,
+            "amt_hist": amt_hist,
             "stab": assess_stabilization(days),
         }
     except: return {"code": code, "name": name, "error": "exception"}
 
+def _compute_turnover(cache):
+    """沪深两市成交额合计：上证(沪市) + 深证成指(深市)，含15日历史"""
+    sh = cache.get("sh000001", {})
+    sz = cache.get("sz399001", {})
+    sh_hist = {h["date"]: h["amt"] for h in sh.get("amt_hist", [])}
+    sz_hist = {h["date"]: h["amt"] for h in sz.get("amt_hist", [])}
+    dates = sorted(set(sh_hist) & set(sz_hist))
+    history = [{"date": d, "amt": round(sh_hist[d] + sz_hist[d], 0)} for d in dates]
+    today = history[-1]["amt"] if history else 0
+    prev5 = [h["amt"] for h in history[-6:-1]]
+    vs5 = round((today / (sum(prev5) / 5) - 1) * 100, 1) if len(prev5) == 5 and sum(prev5) > 0 else 0
+    return {"today": today, "vs5": vs5, "history": history}
+
 def indices_refresher():
     """Background: refresh index MA data every 60s"""
-    global _indices_cache
-    INDICES = [("sh000001", "上证指数"), ("sh000688", "科创50"), ("sz399006", "创业板指")]
+    global _indices_cache, _turnover_cache
+    # sz399001(深证成指) 仅用于两市成交额合计，不展示卡片
+    INDICES = [("sh000001", "上证指数"), ("sh000688", "科创50"), ("sz399006", "创业板指"),
+               ("sz399001", "深证成指")]
     while True:
         try:
             from concurrent.futures import ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=3) as ex:
+            with ThreadPoolExecutor(max_workers=4) as ex:
                 futures = {code: ex.submit(get_index_data, code, n) for code, n in INDICES}
             _indices_cache = {code: futures[code].result() for code, _ in INDICES}
+            _turnover_cache = _compute_turnover(_indices_cache)
         except: pass
         time.sleep(60)
 
@@ -802,6 +829,9 @@ class StockAPIHandler(BaseHTTPRequestHandler):
             elif path == "/api/indices":
                 self._send_json(_indices_cache)
 
+            elif path == "/api/turnover":
+                self._send_json(_turnover_cache)
+
             elif path == "/api/suggest":
                 q = params.get("q", [""])[0].strip().lower()
                 results = []
@@ -1389,6 +1419,8 @@ class StockAPIHandler(BaseHTTPRequestHandler):
         import json as json2
         indices_json = json2.dumps(_indices_cache, ensure_ascii=False)
         html = html.replace("var indicesData = {};", f"var indicesData = {indices_json};")
+        turnover_json = json2.dumps(_turnover_cache, ensure_ascii=False)
+        html = html.replace("var turnoverData = {};", f"var turnoverData = {turnover_json};")
         
         # Server-side render the index cards (replaces JS rendering)
         def render_idx_cards(cache):
@@ -1404,9 +1436,17 @@ class StockAPIHandler(BaseHTTPRequestHandler):
                 def above(v):
                     if not v or not price: return "var(--text-muted)"
                     return "var(--red)" if price >= v else "var(--green)"
+                amt = idx.get("amt_yi", 0)
+                amt_vs5 = idx.get("amt_vs5", 0)
+                amt_color = "var(--red)" if amt_vs5 > 5 else ("var(--green)" if amt_vs5 < -5 else "var(--text-muted)")
+                amt_sign = "+" if amt_vs5 > 0 else ""
+                amt_str = f'{amt:.0f}亿' if amt else '—'
+                vol_line = (f'<div class="idx-vol">成交额 <b>{amt_str}</b> '
+                            f'<span style="color:{amt_color};">{amt_sign}{amt_vs5}% vs 5日均</span></div>')
                 cards += f'''<div class="idx-card"><div class="idx-name">{name}</div>
 <div class="idx-price" style="color:{color};">{price:.2f}</div>
 <div class="idx-chg" style="color:{color};">{sign}{chg:.2f}%</div>
+{vol_line}
 <div class="idx-mas">MA5 <b style="color:{above(idx.get('ma5'))}">{no(idx.get('ma5'))}</b> | MA10 <b style="color:{above(idx.get('ma10'))}">{no(idx.get('ma10'))}</b> | MA20 <b style="color:{above(idx.get('ma20'))}">{no(idx.get('ma20'))}</b> | MA60 <b style="color:{above(idx.get('ma60'))}">{no(idx.get('ma60'))}</b></div></div>'''
             return cards
         
